@@ -59,6 +59,9 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
   const [newPolicyId, setNewPolicyId] = useState<string>('');
   const [newSignerWeight, setNewSignerWeight] = useState<number>(1);
   const [newAutonomyMode, setNewAutonomyMode] = useState<'AUTONOMOUS' | 'HUMAN_APPROVAL_ALWAYS'>('AUTONOMOUS');
+  const [additionalSigners, setAdditionalSigners] = useState<string[]>([]);
+  const [newSignerInput, setNewSignerInput] = useState<string>('');
+  const [signerInputError, setSignerInputError] = useState<string>('');
   const [isSubmittingCreate, setIsSubmittingCreate] = useState<boolean>(false);
   const [createdAgentCredentials, setCreatedAgentCredentials] = useState<{
     agent: ApiAgent;
@@ -135,6 +138,9 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
     setNewDescription('');
     setNewSignerWeight(1);
     setNewAutonomyMode('AUTONOMOUS');
+    setAdditionalSigners([]);
+    setNewSignerInput('');
+    setSignerInputError('');
     if (policies.length > 0) {
       setNewPolicyId(policies[0].id);
     }
@@ -142,12 +148,42 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
     setIsCreateModalOpen(true);
   };
 
+  const handleAddAdditionalSigner = () => {
+    const addr = newSignerInput.trim().toUpperCase();
+    if (!addr) return;
+    if (!/^G[A-Z0-9]{55}$/.test(addr)) {
+      setSignerInputError('Must be a valid 56-character Stellar public address (starting with G)');
+      return;
+    }
+    if (controlledWallet.address && addr === controlledWallet.address.toUpperCase()) {
+      setSignerInputError('Your connected admin wallet is already registered as Signer 2');
+      return;
+    }
+    if (additionalSigners.includes(addr)) {
+      setSignerInputError('This signing wallet address is already added');
+      return;
+    }
+    const updated = [...additionalSigners, addr];
+    setAdditionalSigners(updated);
+    setNewSignerInput('');
+    setSignerInputError('');
+  };
+
+  const handleRemoveAdditionalSigner = (index: number) => {
+    const updated = additionalSigners.filter((_, i) => i !== index);
+    setAdditionalSigners(updated);
+    const maxPossible = 2 + updated.length;
+    if (newSignerWeight > maxPossible) {
+      setNewSignerWeight(maxPossible);
+    }
+  };
+
   const openEditModal = (ag: ApiAgent) => {
     setEditingAgent(ag);
     setEditName(ag.name);
     setEditDescription(ag.description);
     setEditPolicyId(ag.policy);
-    setEditSignerWeight(ag.signer_weight || 1);
+    setEditSignerWeight(ag.autonomy_mode === 'AUTONOMOUS' ? 1 : Math.max(2, ag.signer_weight || 2));
     setEditAutonomyMode(ag.autonomy_mode || 'AUTONOMOUS');
     setEditStatus(ag.status);
   };
@@ -161,14 +197,17 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
       const walletId = controlledWallet.id;
       if (!walletId) throw new Error('Controlled wallet not found');
 
+      const finalWeight = newAutonomyMode === 'AUTONOMOUS' ? 1 : Math.max(2, newSignerWeight || 2);
+
       const res = await api.createAgent({
         agent_id: newAgentId.trim() || `agt_${Date.now()}`,
         name: newAgentName.trim(),
         description: newDescription.trim(),
         wallet: walletId,
         policy: newPolicyId,
-        signer_weight: newSignerWeight,
+        signer_weight: finalWeight,
         autonomy_mode: newAutonomyMode,
+        delegated_operator_addresses: additionalSigners,
       });
 
       setCreatedAgentCredentials(res);
@@ -196,11 +235,12 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
 
     try {
       setIsSubmittingEdit(true);
+      const finalWeight = editAutonomyMode === 'AUTONOMOUS' ? 1 : Math.max(2, editSignerWeight || 2);
       const res = await api.updateAgent(editingAgent.id, {
         name: editName.trim(),
         description: editDescription.trim(),
         policy: editPolicyId,
-        signer_weight: editSignerWeight,
+        signer_weight: finalWeight,
         autonomy_mode: editAutonomyMode,
         status: editStatus,
       });
@@ -814,16 +854,30 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                 {/* Signer Weight & Autonomy Mode */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-white/70">PDA Signer Weight</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-white/70">PDA Signer Weight</label>
+                      {newAutonomyMode === 'AUTONOMOUS' && (
+                        <span className="text-[10px] text-amber-400 font-medium">Locked (1)</span>
+                      )}
+                    </div>
                     <input
                       type="number"
-                      min={1}
-                      max={10}
-                      value={newSignerWeight}
-                      onChange={(e) => setNewSignerWeight(parseInt(e.target.value) || 1)}
-                      className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                      min={newAutonomyMode === 'AUTONOMOUS' ? 1 : 2}
+                      max={newAutonomyMode === 'AUTONOMOUS' ? 1 : 10}
+                      disabled={newAutonomyMode === 'AUTONOMOUS'}
+                      value={newAutonomyMode === 'AUTONOMOUS' ? 1 : newSignerWeight}
+                      onChange={(e) => setNewSignerWeight(Math.max(2, parseInt(e.target.value) || 2))}
+                      className={`px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-all ${
+                        newAutonomyMode === 'AUTONOMOUS'
+                          ? 'bg-white/[0.02] border-white/[0.05] text-white/40 cursor-not-allowed'
+                          : 'bg-white/[0.04] border-white/[0.1] text-white focus:outline-none focus:border-blue-500'
+                      }`}
                     />
-                    <span className="text-[10px] text-white/40">Default weight: 1 (Multisig med threshold: 2)</span>
+                    <span className="text-[10px] text-white/40">
+                      {newAutonomyMode === 'AUTONOMOUS'
+                        ? 'Weight is strictly locked to 1 in Autonomous Mode.'
+                        : 'Default weight: 2 (Multisig 2-of-2 requirement)'}
+                    </span>
                   </div>
 
                   <div className="sm:col-span-2 flex flex-col gap-1.5">
@@ -831,7 +885,10 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => setNewAutonomyMode('AUTONOMOUS')}
+                        onClick={() => {
+                          setNewAutonomyMode('AUTONOMOUS');
+                          setNewSignerWeight(1);
+                        }}
                         className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
                           newAutonomyMode === 'AUTONOMOUS'
                             ? 'bg-purple-500/15 border-purple-500/40 text-purple-200'
@@ -842,12 +899,15 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                           <Zap className="w-3.5 h-3.5 text-purple-400" />
                           <span>Autonomous</span>
                         </div>
-                        <span className="text-[10px] text-white/50">Auto-signs payments within policy limits</span>
+                        <span className="text-[10px] text-white/50">Auto-signs payments (Weight locked to 1)</span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => setNewAutonomyMode('HUMAN_APPROVAL_ALWAYS')}
+                        onClick={() => {
+                          setNewAutonomyMode('HUMAN_APPROVAL_ALWAYS');
+                          setNewSignerWeight(2);
+                        }}
                         className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
                           newAutonomyMode === 'HUMAN_APPROVAL_ALWAYS'
                             ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
@@ -858,11 +918,124 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                           <Lock className="w-3.5 h-3.5 text-amber-400" />
                           <span>Approval Always</span>
                         </div>
-                        <span className="text-[10px] text-white/50">Requires human co-signing for every tx</span>
+                        <span className="text-[10px] text-white/50">Defaults to Weight 2 + Admin Wallet Signer</span>
                       </button>
                     </div>
                   </div>
                 </div>
+
+                {/* Multisig Signing Setup Card when in Approval Always mode */}
+                {newAutonomyMode === 'HUMAN_APPROVAL_ALWAYS' && (
+                  <div className="flex flex-col gap-3 p-4 bg-blue-500/[0.08] border border-blue-500/25 rounded-2xl animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between pb-2 border-b border-blue-500/20">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-blue-400" />
+                        <span className="font-semibold text-white text-xs">
+                          Multisig Signing Architecture (2+ Signatures)
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-400/20">
+                        Threshold: {newSignerWeight} of {2 + additionalSigners.length} Signatures
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-white/70">
+                      Transactions proposed by this agent will require <strong>{newSignerWeight}</strong> cryptographic signatures before broadcast to Stellar Testnet:
+                    </p>
+
+                    {/* Pre-configured Signer 1 & Signer 2 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {/* Signer 1: Agent PDA */}
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-[11px] font-bold shrink-0">
+                          1
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-semibold text-white text-[11px] block">Signer 1: AI Agent PDA</span>
+                          <span className="text-[10px] text-emerald-400">Auto-signs initial proposal (+1 Weight)</span>
+                        </div>
+                      </div>
+
+                      {/* Signer 2: User Admin Wallet */}
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-[11px] font-bold shrink-0">
+                          2
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-semibold text-white text-[11px] block">Signer 2: Your Admin Wallet</span>
+                          <span className="font-mono text-[10px] text-blue-300 truncate block">
+                            {controlledWallet.address ? `${controlledWallet.address.slice(0, 10)}...${controlledWallet.address.slice(-6)}` : 'Connected Wallet (+1 Weight)'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Additional Signing Wallets List */}
+                    {additionalSigners.length > 0 && (
+                      <div className="flex flex-col gap-1.5 pt-2 border-t border-white/[0.06]">
+                        <span className="text-[11px] font-semibold text-white/70">
+                          Additional Co-Signing Wallets ({additionalSigners.length}):
+                        </span>
+                        <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+                          {additionalSigners.map((signerAddr, idx) => (
+                            <div
+                              key={idx}
+                              className="p-2 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between text-[11px]"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-5 h-5 rounded-md bg-purple-500/20 text-purple-300 flex items-center justify-center text-[10px] font-bold shrink-0">
+                                  {idx + 3}
+                                </span>
+                                <span className="font-mono text-white/80 truncate">
+                                  {signerAddr}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAdditionalSigner(idx)}
+                                className="p-1 text-white/40 hover:text-rose-400 rounded transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Remove signing wallet"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Add More Signing Wallets Input */}
+                    <div className="flex flex-col gap-1.5 pt-2 border-t border-white/[0.06]">
+                      <label className="text-[11px] font-semibold text-white/70">
+                        Add More Signing Wallets (Optional)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={newSignerInput}
+                          onChange={(e) => {
+                            setNewSignerInput(e.target.value);
+                            setSignerInputError('');
+                          }}
+                          placeholder="Stellar public address: e.g. GBDF5GHLWUQ..."
+                          className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddAdditionalSigner}
+                          className="px-3 py-2 bg-blue-600/30 hover:bg-blue-600 text-blue-200 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 border border-blue-500/30"
+                        >
+                          + Add Signer
+                        </button>
+                      </div>
+                      {signerInputError && (
+                        <span className="text-[10px] text-rose-400 font-medium">
+                          {signerInputError}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
                   <button
@@ -949,15 +1122,30 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-white/70">Signer Weight</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-white/70">Signer Weight</label>
+                    {editAutonomyMode === 'AUTONOMOUS' && (
+                      <span className="text-[10px] text-amber-400 font-medium">Locked (1)</span>
+                    )}
+                  </div>
                   <input
                     type="number"
-                    min={1}
-                    max={10}
-                    value={editSignerWeight}
-                    onChange={(e) => setEditSignerWeight(parseInt(e.target.value) || 1)}
-                    className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                    min={editAutonomyMode === 'AUTONOMOUS' ? 1 : 2}
+                    max={editAutonomyMode === 'AUTONOMOUS' ? 1 : 10}
+                    disabled={editAutonomyMode === 'AUTONOMOUS'}
+                    value={editAutonomyMode === 'AUTONOMOUS' ? 1 : editSignerWeight}
+                    onChange={(e) => setEditSignerWeight(Math.max(2, parseInt(e.target.value) || 2))}
+                    className={`px-3.5 py-2.5 rounded-xl border text-xs font-mono transition-all ${
+                      editAutonomyMode === 'AUTONOMOUS'
+                        ? 'bg-white/[0.02] border-white/[0.05] text-white/40 cursor-not-allowed'
+                        : 'bg-white/[0.04] border-white/[0.1] text-white font-mono focus:outline-none focus:border-blue-500'
+                    }`}
                   />
+                  <span className="text-[10px] text-white/40">
+                    {editAutonomyMode === 'AUTONOMOUS'
+                      ? 'Weight is locked to 1 in Autonomous Mode.'
+                      : 'Weight 2 enables 2-of-2 multisig.'}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -979,7 +1167,10 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditAutonomyMode('AUTONOMOUS')}
+                    onClick={() => {
+                      setEditAutonomyMode('AUTONOMOUS');
+                      setEditSignerWeight(1);
+                    }}
                     className={`p-2.5 rounded-xl border text-left flex items-center gap-2 cursor-pointer transition-all ${
                       editAutonomyMode === 'AUTONOMOUS'
                         ? 'bg-purple-500/15 border-purple-500/40 text-purple-200'
@@ -992,7 +1183,10 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setEditAutonomyMode('HUMAN_APPROVAL_ALWAYS')}
+                    onClick={() => {
+                      setEditAutonomyMode('HUMAN_APPROVAL_ALWAYS');
+                      if (editSignerWeight < 2) setEditSignerWeight(2);
+                    }}
                     className={`p-2.5 rounded-xl border text-left flex items-center gap-2 cursor-pointer transition-all ${
                       editAutonomyMode === 'HUMAN_APPROVAL_ALWAYS'
                         ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
@@ -1004,6 +1198,16 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                   </button>
                 </div>
               </div>
+
+              {editAutonomyMode === 'HUMAN_APPROVAL_ALWAYS' && (
+                <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center gap-2.5 text-xs">
+                  <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-white block">Second Signer: Admin Wallet Active</span>
+                    <p className="text-[11px] font-mono text-blue-300 truncate">{controlledWallet.address}</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
                 <button

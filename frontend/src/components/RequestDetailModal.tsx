@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AgentRequest } from '../types';
 import { api } from '../services/api';
+import { signChallengeWithWallet } from '../services/stellarWallet';
 import {
   X,
   Shield,
@@ -18,7 +19,10 @@ import {
   Key,
   ShieldCheck,
   Send,
-  UserCheck
+  UserCheck,
+  Bot,
+  Wallet,
+  Lock,
 } from 'lucide-react';
 
 interface RequestDetailModalProps {
@@ -43,6 +47,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
   const [copiedTx, setCopiedTx] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isSigningOperator, setIsSigningOperator] = useState(false);
+  const [walletPromptNotice, setWalletPromptNotice] = useState<string | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
 
   // Signatures and weight state
@@ -65,9 +70,36 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
     isExecuted ? 4 : isThresholdMet ? 2 : collectedWeight > 0 ? 1 : 0
   );
 
-  const effectiveOperator = operatorAddress || 'GAOPERATORDEMOTESTNETADDRESS1234567890ABCDEFGH12345678';
+  const effectiveOperator = operatorAddress || 'GCAD5PDJRNUAASBJSRL4YNNUCIB723PYNIGMU7FWSUKMS5IPUYIU46YI';
   const hasCurrentOperatorSigned = signatures.some(
     (s) => s.operator_address.toLowerCase() === effectiveOperator.toLowerCase()
+  );
+
+  // Identify Signer 1: AI Agent PDA
+  const agentSig = signatures.find(
+    (s) =>
+      s.role === 'AGENT_PDA' ||
+      s.notes?.includes('Agent PDA') ||
+      (request.agentPublicKey && s.operator_address.toLowerCase() === request.agentPublicKey.toLowerCase()) ||
+      s.operator_address.startsWith('agent_pda_')
+  ) || (signatures.length > 0 ? signatures[0] : null);
+
+  // Identify Signer 2: Admin Wallet
+  const adminSig = signatures.find(
+    (s) =>
+      (s.operator_address.toLowerCase() === effectiveOperator.toLowerCase() && s !== agentSig) ||
+      s.role === 'ADMIN' ||
+      s.notes?.includes('Admin Wallet')
+  );
+
+  const hasAdminSigned = Boolean(adminSig);
+
+  // Additional signatures and configured signers
+  const otherSignatures = signatures.filter((s) => s !== agentSig && s !== adminSig);
+  const extraConfiguredSigners = (request.delegatedOperators || []).filter(
+    (addr) =>
+      addr.toLowerCase() !== effectiveOperator.toLowerCase() &&
+      (!request.agentPublicKey || addr.toLowerCase() !== request.agentPublicKey.toLowerCase())
   );
 
   const handleCopy = (text: string, type: 'hash' | 'tx') => {
@@ -81,16 +113,41 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
     }
   };
 
-  // Step A: Member Operator Signs to add weight
+  // Helper to prompt user's connected wallet (Freighter / kit) for cryptographic signature
+  const requestWalletSignature = async (): Promise<string> => {
+    setWalletPromptNotice('Please approve the signature request in your Stellar wallet extension (Freighter)...');
+    const challengeMessage =
+      `GuardRail Multisig Authorization\n` +
+      `Request ID: ${request.requestId}\n` +
+      `Agent ID: ${request.agentId}\n` +
+      `Amount: ${request.amount} ${request.asset}\n` +
+      `Recipient: ${request.recipient}\n` +
+      `Signer: ${effectiveOperator}\n` +
+      `Timestamp: ${new Date().toISOString()}`;
+
+    try {
+      const sig = await signChallengeWithWallet(challengeMessage, effectiveOperator);
+      setWalletPromptNotice(null);
+      return sig;
+    } catch (err) {
+      setWalletPromptNotice(null);
+      throw err;
+    }
+  };
+
+  // Step A: Member Operator Signs to add weight using connected wallet
   const handleOperatorSign = async () => {
     setIsSigningOperator(true);
     setExecutionError(null);
     try {
+      // Prompt user's connected wallet for cryptographic signature
+      const cryptographicSig = await requestWalletSignature();
+
       const res = await api.signRequest(request.backendId || request.id, {
         operator_address: effectiveOperator,
-        signature: 'sep53_sig_' + Date.now(),
+        signature: cryptographicSig,
         weight: 1,
-        notes: 'Signed via GuardRail Member Operator Key',
+        notes: 'Signed via Connected Admin Wallet',
       });
 
       const updatedSignatures = res.operator_signatures || [];
@@ -105,46 +162,26 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
         setSigningStep(1);
       }
     } catch (err: unknown) {
-      console.warn('Operator signing fallback:', err);
-      // Fallback optimistic update
-      const newSig = {
-        operator_address: effectiveOperator,
-        signature: 'sep53_sig_' + Date.now(),
-        weight: 1,
-        notes: 'Signed via Member Operator Key',
-        signed_at: new Date().toISOString(),
-      };
-      const updated = [...signatures, newSig];
-      setSignatures(updated);
-      const newWeight = collectedWeight + 1;
-      setCollectedWeight(newWeight);
-      if (newWeight >= requiredWeight) {
-        request.status = 'Approved';
-        setSigningStep(2);
-      } else {
-        setSigningStep(1);
-      }
+      console.warn('Operator signing error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setExecutionError(errMsg);
     } finally {
       setIsSigningOperator(false);
+      setWalletPromptNotice(null);
     }
   };
 
   // Step B: Co-sign and execute live on Stellar Testnet
   const handleBroadcastToStellar = async () => {
+    if (collectedWeight < requiredWeight && request.status !== 'Approved') {
+      setExecutionError(`Multisig threshold not met: collected weight is ${collectedWeight} of ${requiredWeight} required. Admin wallet signature is required before broadcasting.`);
+      return;
+    }
     setIsExecuting(true);
     setExecutionError(null);
     setSigningStep(3); // Broadcast in progress
 
     try {
-      // If still pending, ensure approval state
-      if (request.status === 'Pending') {
-        await api.approveRequest(
-          request.backendId || request.id,
-          effectiveOperator,
-          'Approved for Stellar submission'
-        ).catch(() => {});
-      }
-
       // Execute live on Stellar Testnet
       const res = await api.cosignAndSubmit(request.backendId || request.id, false);
       const txHash = res.stellar_tx_hash;
@@ -168,30 +205,41 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
     }
   };
 
-  // Combined one-click "Sign & Broadcast" for smooth single operator flow
+  // Combined one-click "Sign with Wallet & Broadcast"
   const handleSignAndBroadcast = async () => {
     setIsExecuting(true);
     setExecutionError(null);
     try {
-      // 1. Sign if not already signed
-      if (!hasCurrentOperatorSigned && collectedWeight < requiredWeight) {
-        await api.signRequest(request.backendId || request.id, {
+      // 1. Ensure required multisig weight is reached before broadcasting
+      if (collectedWeight < requiredWeight || request.status !== 'Approved') {
+        let cryptographicSig = '';
+        if (!hasCurrentOperatorSigned) {
+          setIsSigningOperator(true);
+          cryptographicSig = await requestWalletSignature();
+          setIsSigningOperator(false);
+        }
+
+        const signRes = await api.signRequest(request.backendId || request.id, {
           operator_address: effectiveOperator,
-          signature: 'sep53_sig_' + Date.now(),
+          signature: cryptographicSig || 'verified_admin_wallet_signature',
           weight: 1,
-          notes: 'Signed and executed via Operator Interface',
-        }).catch(() => {});
-        setCollectedWeight((prev) => prev + 1);
+          notes: 'Signed via Connected Admin Wallet',
+        });
+
+        const newWeight = signRes.collected_weight ?? (collectedWeight + 1);
+        setCollectedWeight(newWeight);
+        setSignatures(signRes.operator_signatures || []);
+
+        if (signRes.status === 'APPROVED' || newWeight >= requiredWeight) {
+          request.status = 'Approved';
+          setSigningStep(2);
+        } else {
+          setSigningStep(1);
+          throw new Error(`Signature recorded (weight ${newWeight}/${requiredWeight}). Additional signer approval required before broadcasting.`);
+        }
       }
 
-      // 2. Approve if needed
-      await api.approveRequest(
-        request.backendId || request.id,
-        effectiveOperator,
-        'Approved and executed via Operator Interface'
-      ).catch(() => {});
-
-      // 3. Broadcast to Stellar
+      // 2. Broadcast to Stellar
       setSigningStep(3);
       const res = await api.cosignAndSubmit(request.backendId || request.id, false);
       const txHash = res.stellar_tx_hash;
@@ -209,9 +257,11 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error('Combined execution failed:', err);
       setExecutionError(errMsg);
-      setSigningStep(isThresholdMet ? 2 : 0);
+      setSigningStep(isThresholdMet ? 2 : collectedWeight > 0 ? 1 : 0);
     } finally {
+      setIsSigningOperator(false);
       setIsExecuting(false);
+      setWalletPromptNotice(null);
     }
   };
 
@@ -367,6 +417,17 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 </div>
               </div>
 
+              {/* Wallet Extension Prompt Notice */}
+              {walletPromptNotice && (
+                <div className="p-4 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-start gap-3 text-xs text-purple-200 animate-pulse">
+                  <Key className="w-4 h-4 shrink-0 mt-0.5 text-purple-400" />
+                  <div className="flex-1">
+                    <div className="font-bold text-white">Stellar Wallet Extension Signature Required</div>
+                    <div className="text-purple-200/90 mt-0.5">{walletPromptNotice}</div>
+                  </div>
+                </div>
+              )}
+
               {/* Execution Error Banner (if any) */}
               {executionError && (
                 <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-3 text-xs text-rose-300">
@@ -425,115 +486,178 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 {/* Steps List */}
                 <div className="flex flex-col divide-y divide-white/[0.06]">
                   
-                  {/* Step 1: Member Operator Authorization */}
+                  {/* Step 1: AI Agent PDA Proposal (Signer 1) */}
+                  <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        <Check className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                          <span>Signer 1 of {requiredWeight}: AI Agent PDA ({request.agentName})</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                            Proposal Signed (+1 Weight)
+                          </span>
+                        </div>
+                        <div className="text-xs text-white/50 mt-0.5 flex items-center gap-2 font-mono">
+                          <Bot className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="truncate">{request.agentPublicKey || agentSig?.operator_address || request.agentId}</span>
+                        </div>
+                        {agentSig && (
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/40">
+                            <span>Signed: {new Date(agentSig.signed_at).toLocaleTimeString()}</span>
+                            <span>•</span>
+                            <span className="font-mono text-emerald-400/80">
+                              ED25519: {agentSig.signature.slice(0, 16)}...
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0 self-start sm:self-center">
+                      +1 Weight
+                    </span>
+                  </div>
+
+                  {/* Step 2: User Admin Wallet Signature (Signer 2) */}
                   <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
-                          collectedWeight > 0
+                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
+                          hasAdminSigned
                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-white/[0.05] text-white/40 border border-white/[0.08]'
+                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
                         }`}
                       >
-                        {collectedWeight > 0 ? <Check className="w-3.5 h-3.5" /> : '1'}
+                        {hasAdminSigned ? <Check className="w-4 h-4" /> : '2'}
                       </div>
-                      <div>
-                        <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                          <span>Operator Authorization</span>
-                          {hasCurrentOperatorSigned && (
-                            <span className="text-[10px] font-normal px-2 py-0.2 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
-                              Signed by your wallet
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                          <span>Signer 2 of {requiredWeight}: Your Admin Wallet</span>
+                          {hasAdminSigned ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                              Signed via Connected Wallet (+1 Weight)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              Awaiting Your Wallet Signature
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-white/50 mt-0.5">
-                          {signatures.length === 0
-                            ? 'No member operator signature recorded yet.'
-                            : `${signatures.length} operator signature(s) recorded (+${collectedWeight} weight).`}
+                        <div className="text-xs text-white/50 mt-0.5 flex items-center gap-2 font-mono">
+                          <Wallet className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                          <span className="truncate">{effectiveOperator}</span>
                         </div>
-
-                        {/* Signatures Roster */}
-                        {signatures.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {signatures.map((sig, i) => (
-                              <div
-                                key={i}
-                                className="px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center gap-1.5 text-[11px]"
-                              >
-                                <UserCheck className="w-3 h-3 text-emerald-400" />
-                                <span className="font-mono text-white/80">
-                                  {sig.operator_address.slice(0, 6)}...{sig.operator_address.slice(-4)}
-                                </span>
-                                <span className="text-[10px] text-purple-300 font-bold px-1 rounded bg-purple-500/20">
-                                  +{sig.weight}
-                                </span>
-                              </div>
-                            ))}
+                        {adminSig && (
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/40">
+                            <span>Signed: {new Date(adminSig.signed_at).toLocaleTimeString()}</span>
+                            <span>•</span>
+                            <span className="font-mono text-blue-400/80">
+                              Sig: {adminSig.signature.slice(0, 16)}...
+                            </span>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Step 1 Action Button */}
-                    {!isExecuted && !hasCurrentOperatorSigned && (
+                    {/* Step 2 Action Button */}
+                    {!isExecuted && !hasAdminSigned && (
                       <button
                         onClick={handleOperatorSign}
                         disabled={isSigningOperator}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600/80 hover:bg-purple-600 text-white transition-all flex items-center gap-1.5 shrink-0 cursor-pointer self-start sm:self-center disabled:opacity-50"
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-all flex items-center gap-2 shrink-0 cursor-pointer self-start sm:self-center shadow-lg shadow-blue-600/30 disabled:opacity-50"
                       >
                         {isSigningOperator ? (
-                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <Key className="w-3 h-3" />
+                          <Key className="w-3.5 h-3.5" />
                         )}
-                        <span>{isSigningOperator ? 'Signing...' : 'Sign as Operator (+1)'}</span>
+                        <span>{isSigningOperator ? 'Approve in Wallet...' : 'Sign with My Wallet (+1)'}</span>
                       </button>
+                    )}
+
+                    {hasAdminSigned && (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0 self-start sm:self-center">
+                        +1 Weight
+                      </span>
                     )}
                   </div>
 
-                  {/* Step 2: GuardRail Co-Signer Verification */}
+                  {/* Step 2.5: Additional Co-Signer Wallets (if configured or signed) */}
+                  {(extraConfiguredSigners.length > 0 || otherSignatures.length > 0) && (
+                    <div className="py-3 flex flex-col gap-2">
+                      <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">
+                        Additional Co-Signing Wallets ({Math.max(extraConfiguredSigners.length, otherSignatures.length)})
+                      </span>
+                      {(extraConfiguredSigners.length > 0 ? extraConfiguredSigners : otherSignatures.map(s => s.operator_address)).map((addr, idx) => {
+                        const isThisSigned = otherSignatures.some(s => s.operator_address.toLowerCase() === addr.toLowerCase());
+                        const sigData = otherSignatures.find(s => s.operator_address.toLowerCase() === addr.toLowerCase());
+                        return (
+                          <div key={idx} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isThisSigned ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/[0.06] text-white/40'}`}>
+                                {isThisSigned ? <Check className="w-3 h-3" /> : idx + 3}
+                              </div>
+                              <div className="min-w-0 font-mono text-white/80 truncate">
+                                {addr}
+                              </div>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isThisSigned ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.04] text-white/40'}`}>
+                              {isThisSigned ? `+${sigData?.weight || 1} Signed` : 'Pending'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Step 3: GuardRail Single-Use Permit & Verification */}
                   <div className="py-3.5 flex items-start gap-3">
                     <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
                         isThresholdMet
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                           : 'bg-white/[0.05] text-white/40 border border-white/[0.08]'
                       }`}
                     >
-                      {isThresholdMet ? <Check className="w-3.5 h-3.5" /> : '2'}
+                      {isThresholdMet ? <Check className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5 text-white/40" />}
                     </div>
                     <div>
                       <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                        <span>GuardRail Policy Co-Signer</span>
+                        <span>GuardRail Cryptographic Permit</span>
                         {isThresholdMet && (
-                          <span className="text-[10px] font-normal px-2 py-0.2 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
-                            Permit Verified
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                            Threshold Satisfied ({collectedWeight}/{requiredWeight})
                           </span>
                         )}
                       </div>
                       <div className="text-xs text-white/50 mt-0.5">
-                        Guarantees single-use execution and validates cryptographic SHA-256 payload binding against policy limits.
+                        {isThresholdMet
+                          ? 'Cryptographic SHA-256 canonical permit validated against on-chain policy limits.'
+                          : `Requires ${Math.max(0, requiredWeight - collectedWeight)} more signature(s) to satisfy the ${requiredWeight}-of-${requiredWeight} multisig threshold.`}
                       </div>
                     </div>
                   </div>
 
-                  {/* Step 3: Broadcast & Confirmation on Stellar Testnet */}
+                  {/* Step 4: Stellar Testnet Ledger Broadcast */}
                   <div className="py-3.5 flex items-start gap-3">
                     <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold transition-all ${
                         isExecuted
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                           : isExecuting
                           ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30 animate-spin'
+                          : isThresholdMet
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                           : 'bg-white/[0.05] text-white/40 border border-white/[0.08]'
                       }`}
                     >
                       {isExecuted ? (
-                        <Check className="w-3.5 h-3.5" />
+                        <Check className="w-4 h-4" />
                       ) : isExecuting ? (
-                        <RefreshCw className="w-3.5 h-3.5" />
+                        <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : (
-                        '3'
+                        <Send className="w-3.5 h-3.5" />
                       )}
                     </div>
                     <div className="flex-1">
@@ -730,18 +854,26 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     <span>{isExecuting ? 'Broadcasting...' : 'Broadcast to Stellar Testnet'}</span>
                   </button>
                 ) : (
-                  /* Case 2: Threshold not reached -> Sign & Execute or Sign as Operator */
+                  /* Case 2: Threshold not reached -> Sign with Wallet & Broadcast */
                   <button
                     onClick={handleSignAndBroadcast}
                     disabled={isExecuting || isSigningOperator}
                     className="px-5 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white text-xs font-bold rounded-xl shadow-[0_4px_20px_rgba(168,85,247,0.3)] transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                   >
-                    {isExecuting ? (
+                    {isSigningOperator ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : isExecuting ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Key className="w-3.5 h-3.5" />
                     )}
-                    <span>{isExecuting ? 'Executing...' : 'Sign & Broadcast to Stellar'}</span>
+                    <span>
+                      {isSigningOperator
+                        ? 'Approve in Wallet...'
+                        : isExecuting
+                        ? 'Broadcasting...'
+                        : 'Sign with Wallet & Broadcast'}
+                    </span>
                   </button>
                 )}
               </>

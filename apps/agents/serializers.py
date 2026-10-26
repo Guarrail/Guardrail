@@ -92,6 +92,20 @@ class CreateAIAgentSerializer(serializers.ModelSerializer):
             "delegated_operator_addresses",
         ]
 
+    def validate(self, attrs):
+        autonomy_mode = attrs.get("autonomy_mode", "AUTONOMOUS")
+        signer_weight = attrs.get("signer_weight", 1)
+
+        if autonomy_mode == "AUTONOMOUS":
+            # In autonomous mode, do not allow increment of weight; strictly enforce 1
+            attrs["signer_weight"] = 1
+        elif autonomy_mode == "HUMAN_APPROVAL_ALWAYS":
+            # When approval always is selected, default/increase weight to 2
+            if signer_weight < 2:
+                attrs["signer_weight"] = 2
+
+        return attrs
+
 
 class UpdateAIAgentSerializer(serializers.ModelSerializer):
     delegated_operator_addresses = serializers.ListField(
@@ -110,6 +124,22 @@ class UpdateAIAgentSerializer(serializers.ModelSerializer):
             "status",
             "delegated_operator_addresses",
         ]
+
+    def validate(self, attrs):
+        current_autonomy = self.instance.autonomy_mode if self.instance else "AUTONOMOUS"
+        autonomy_mode = attrs.get("autonomy_mode", current_autonomy)
+        current_weight = self.instance.signer_weight if self.instance else 1
+        signer_weight = attrs.get("signer_weight", current_weight)
+
+        if autonomy_mode == "AUTONOMOUS":
+            # In autonomous mode, do not allow increment of weight; strictly enforce 1
+            attrs["signer_weight"] = 1
+        elif autonomy_mode == "HUMAN_APPROVAL_ALWAYS":
+            # When approval always is selected, ensure weight is at least 2
+            if signer_weight < 2:
+                attrs["signer_weight"] = 2
+
+        return attrs
 
 
 class AgentRegistrationResponseSerializer(serializers.Serializer):

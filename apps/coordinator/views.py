@@ -88,7 +88,14 @@ class AgentSubmitRequestView(APIView):
             return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
 
         auto_execute = request.data.get("auto_execute", False)
-        if auto_execute and req.status == "APPROVED" and agent.autonomy_mode == "AUTONOMOUS":
+        can_auto_execute = (
+            auto_execute
+            and req.status == "APPROVED"
+            and not req.requires_human_approval
+            and agent.autonomy_mode == "AUTONOMOUS"
+            and agent.signer_weight == 1
+        )
+        if can_auto_execute:
             try:
                 req = cosign_and_execute_request(
                     request_id=req.request_id,
@@ -164,7 +171,14 @@ class AgentSwapView(APIView):
             return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
 
         auto_execute = data.get("auto_execute", True)
-        if auto_execute and req.status == "APPROVED" and agent.autonomy_mode == "AUTONOMOUS":
+        can_auto_execute = (
+            auto_execute
+            and req.status == "APPROVED"
+            and not req.requires_human_approval
+            and agent.autonomy_mode == "AUTONOMOUS"
+            and agent.signer_weight == 1
+        )
+        if can_auto_execute:
             try:
                 req = cosign_and_execute_request(
                     request_id=req.request_id,
@@ -313,22 +327,40 @@ class OperatorRequestViewSet(viewsets.ReadOnlyModelViewSet):
         notes = serializer.validated_data.get("notes", "")
 
         signatures = list(req.operator_signatures or [])
-        # Prevent duplicate signing by the same operator
-        for existing in signatures:
-            if existing.get("operator_address") == operator_address:
-                return Response(
-                    {"error": f"Operator {operator_address[:8]} has already signed this transaction."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+
+        # Ensure Agent PDA proposal signature is included as Signer 1 if missing
+        has_agent_sig = any(
+            s.get("role") == "AGENT_PDA"
+            or "Agent PDA" in s.get("notes", "")
+            or (req.agent and s.get("operator_address") == req.agent.stellar_public_key)
+            for s in signatures
+        )
+        if not has_agent_sig and req.agent and (req.required_weight >= 2 or req.agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"):
+            agent_addr = req.agent.stellar_public_key or f"agent_pda_{req.agent.agent_id}"
+            pda_sig = f"pda_proposal_sig_{req.agent.agent_id}_{int(req.created_at.timestamp())}"
+            signatures.insert(0, {
+                "operator_address": agent_addr,
+                "signature": pda_sig,
+                "weight": 1,
+                "role": "AGENT_PDA",
+                "notes": f"Signer 1 of {req.required_weight}: AI Agent PDA Proposal ({req.agent.name})",
+                "signed_at": req.created_at.isoformat(),
+            })
 
         now = get_utc_now()
-        signatures.append({
-            "operator_address": operator_address,
-            "signature": signature or f"sep53_sig_{now.timestamp()}",
-            "weight": weight,
-            "notes": notes,
-            "signed_at": now.isoformat(),
-        })
+        # Check if already signed by this operator
+        already_signed = any(s.get("operator_address") == operator_address for s in signatures)
+        if not already_signed:
+            signer_num = len(signatures) + 1
+            is_admin = bool(req.wallet and operator_address == req.wallet.address)
+            signatures.append({
+                "operator_address": operator_address,
+                "signature": signature or f"sep53_sig_{now.timestamp()}",
+                "weight": weight,
+                "role": "ADMIN" if is_admin else "OPERATOR",
+                "notes": notes or f"Signer {signer_num} of {req.required_weight or 2}: {'Admin Wallet Signature' if is_admin else 'Co-Signer Signature'}",
+                "signed_at": now.isoformat(),
+            })
 
         req.operator_signatures = signatures
         req.collected_weight = sum(s.get("weight", 1) for s in signatures)

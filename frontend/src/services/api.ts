@@ -72,6 +72,7 @@ export interface ApiTransactionRequest {
     operator_address: string;
     signature: string;
     weight: number;
+    role?: string;
     notes?: string;
     signed_at: string;
   }>;
@@ -79,6 +80,9 @@ export interface ApiTransactionRequest {
   required_weight?: number;
   agent_name?: string;
   agent_id?: string;
+  agent_public_key?: string;
+  wallet_address?: string;
+  delegated_operators?: string[];
   permit?: {
     id: string;
     payload_hash: string;
@@ -459,6 +463,7 @@ export const api = {
     stellar_public_key?: string;
     signer_weight?: number;
     autonomy_mode?: string;
+    delegated_operator_addresses?: string[];
   }) =>
     fetchJson<{
       agent: ApiAgent;

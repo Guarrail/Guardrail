@@ -29,6 +29,7 @@ export interface OperatorSignature {
   operator_address: string;
   signature: string;
   weight: number;
+  role?: string;
   notes?: string;
   signed_at: string;
 }
@@ -36,8 +37,12 @@ export interface OperatorSignature {
 export interface AgentRequest {
   id: string; // e.g. REQ-1042 or UUID
   backendId?: string; // Backend UUID
+  requestId?: string;
   agentId: string; // agt_7f3k29xq
   agentName: string; // Payroll Assistant
+  agentPublicKey?: string;
+  walletAddress?: string;
+  delegatedOperators?: string[];
   recipientName: string; // Ada Studio (contractor)
   recipientAddress: string; // GDQP3X7KMN2WRZ8YL4HBVT5JCEF9SA6UQ2NLKO7MXPG4RYW9TBJE
   amount: number;

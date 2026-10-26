@@ -2,7 +2,7 @@ import logging
 import requests
 from decimal import Decimal
 from django.conf import settings
-from stellar_sdk import Keypair, Network, TransactionBuilder, Account, Asset, Server
+from stellar_sdk import Keypair, Network, TransactionBuilder, Account, Asset, Server, Signer
 from stellar_sdk.exceptions import BadRequestError, BaseHorizonError, NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -128,12 +128,18 @@ def write_policy_to_pda(
     policy_dict: dict,
     admin_address: str,
     autonomy_mode: str = "AUTONOMOUS",
+    signer_weight: int = 1,
+    additional_signers: list[str] | None = None,
 ) -> str:
     """
     Module 5 — On-chain Policy Storage:
     Writes financial policy rules (policy ID, max amount per tx, daily limit, weekly limit,
-    approval threshold, owner/admin address, autonomy mode) directly into the PDA account
+    approval threshold, owner/admin address, autonomy mode, signer weight) directly into the PDA account
     on Stellar Testnet using native ManageData operations.
+
+    When autonomy_mode is HUMAN_APPROVAL_ALWAYS or signer_weight >= 2, configures the admin wallet
+    as an authorized second signer on the PDA Stellar account. If additional signing wallets are provided,
+    configures them as authorized co-signers as well.
 
     Returns the confirmed Stellar transaction hash visible on Stellar Expert.
     """
@@ -154,6 +160,7 @@ def write_policy_to_pda(
     approval_threshold = str(policy_dict.get("human_approval_threshold", "0.00"))[:64]
     owner_str = str(admin_address)[:64]
     autonomy_str = str(autonomy_mode)[:64]
+    weight_str = str(signer_weight)[:64]
 
     tb = (
         TransactionBuilder(
@@ -169,9 +176,38 @@ def write_policy_to_pda(
         .append_manage_data_op(data_name="gr_appr_thr", data_value=approval_threshold)
         .append_manage_data_op(data_name="gr_admin_addr", data_value=owner_str)
         .append_manage_data_op(data_name="gr_autonomy", data_value=autonomy_str)
-        .set_timeout(300)
+        .append_manage_data_op(data_name="gr_weight", data_value=weight_str)
+        .append_manage_data_op(data_name="gr_signer2", data_value=owner_str)
     )
 
+    # If approval is always required or multisig weight >= 2, configure admin wallet as second signer on-chain
+    if (autonomy_mode == "HUMAN_APPROVAL_ALWAYS" or signer_weight >= 2) and admin_address and admin_address != pda_address:
+        if is_valid_stellar_address(admin_address):
+            try:
+                tb.append_set_options_op(
+                    signer=Signer.ed25519_public_key(account_id=admin_address, weight=1),
+                )
+                logger.info("Configured admin wallet %s as authorized second signer on PDA %s", admin_address, pda_address)
+            except Exception as e:
+                logger.warning("Could not append set_options_op for admin signer: %s", str(e))
+
+    # Configure any additional signing wallets provided during agent creation
+    if additional_signers:
+        signer_idx = 3
+        for extra_signer in additional_signers:
+            if extra_signer and extra_signer != pda_address and extra_signer != admin_address:
+                if is_valid_stellar_address(extra_signer):
+                    try:
+                        tb.append_manage_data_op(data_name=f"gr_signer{signer_idx}"[:64], data_value=extra_signer[:64])
+                        tb.append_set_options_op(
+                            signer=Signer.ed25519_public_key(account_id=extra_signer, weight=1),
+                        )
+                        logger.info("Configured additional co-signer wallet %s (Signer %s) on PDA %s", extra_signer, signer_idx, pda_address)
+                        signer_idx += 1
+                    except Exception as e:
+                        logger.warning("Could not append set_options_op for additional signer %s: %s", extra_signer, str(e))
+
+    tb.set_timeout(300)
     tx = tb.build()
     tx.sign(kp)
 

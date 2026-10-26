@@ -82,6 +82,9 @@ class TransactionRequestSerializer(serializers.ModelSerializer):
     stellar_explorer_url = serializers.SerializerMethodField()
     agent_name = serializers.CharField(source="agent.name", read_only=True)
     agent_id = serializers.CharField(source="agent.agent_id", read_only=True)
+    agent_public_key = serializers.CharField(source="agent.stellar_public_key", read_only=True)
+    wallet_address = serializers.CharField(source="wallet.address", read_only=True)
+    delegated_operators = serializers.SerializerMethodField()
 
     class Meta:
         model = TransactionRequest
@@ -91,7 +94,10 @@ class TransactionRequestSerializer(serializers.ModelSerializer):
             "agent",
             "agent_id",
             "agent_name",
+            "agent_public_key",
             "wallet",
+            "wallet_address",
+            "delegated_operators",
             "recipient",
             "asset_code",
             "asset_issuer",
@@ -116,6 +122,11 @@ class TransactionRequestSerializer(serializers.ModelSerializer):
         if obj.stellar_tx_hash:
             return f"https://stellar.expert/explorer/testnet/tx/{obj.stellar_tx_hash}"
         return None
+
+    def get_delegated_operators(self, obj) -> list[str]:
+        if obj.agent:
+            return [op.address for op in obj.agent.delegated_operators.all()]
+        return []
 
 
 class OperatorApprovalSerializer(serializers.Serializer):

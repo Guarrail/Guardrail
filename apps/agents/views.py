@@ -103,6 +103,10 @@ class AIAgentViewSet(viewsets.ModelViewSet):
         # 3. Write Policy directly into PDA on Stellar Testnet using ManageData
         policy = validated_data["policy"]
         pda_tx_hash = ""
+        admin_address = validated_data["wallet"].address
+        autonomy_mode = validated_data.get("autonomy_mode", "AUTONOMOUS")
+        signer_weight = validated_data.get("signer_weight", 1)
+
         if pda_secret_key:
             try:
                 policy_dict = {
@@ -113,14 +117,14 @@ class AIAgentViewSet(viewsets.ModelViewSet):
                     "weekly_spending_limit": str(policy.weekly_spending_limit),
                     "human_approval_threshold": str(policy.human_approval_threshold),
                 }
-                admin_address = validated_data["wallet"].address
-                autonomy_mode = validated_data.get("autonomy_mode", "AUTONOMOUS")
 
                 pda_tx_hash = write_policy_to_pda(
                     pda_secret=pda_secret_key,
                     policy_dict=policy_dict,
                     admin_address=admin_address,
                     autonomy_mode=autonomy_mode,
+                    signer_weight=signer_weight,
+                    additional_signers=delegated_addrs,
                 )
                 logger.info("Policy successfully written into PDA %s on testnet! Tx: %s", pda_pubkey, pda_tx_hash)
             except Exception as e:
@@ -141,6 +145,11 @@ class AIAgentViewSet(viewsets.ModelViewSet):
             if is_valid_stellar_address(addr):
                 op, _ = Operator.objects.get_or_create(address=addr, defaults={"role": "OPERATOR"})
                 agent.delegated_operators.add(op)
+
+        # If approval always is selected or weight >= 2, ensure the admin user wallet is configured as the second signer
+        if (autonomy_mode == "HUMAN_APPROVAL_ALWAYS" or signer_weight >= 2) and is_valid_stellar_address(admin_address):
+            admin_op, _ = Operator.objects.get_or_create(address=admin_address, defaults={"role": "ADMIN"})
+            agent.delegated_operators.add(admin_op)
 
         record_audit_event(
             event_type="AI_AGENT_REGISTERED",
@@ -187,6 +196,11 @@ class AIAgentViewSet(viewsets.ModelViewSet):
                     op, _ = Operator.objects.get_or_create(address=addr, defaults={"role": "OPERATOR"})
                     agent.delegated_operators.add(op)
 
+        # Ensure admin wallet is delegated operator if approval always or weight >= 2
+        if (agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS" or agent.signer_weight >= 2) and agent.wallet and is_valid_stellar_address(agent.wallet.address):
+            admin_op, _ = Operator.objects.get_or_create(address=agent.wallet.address, defaults={"role": "ADMIN"})
+            agent.delegated_operators.add(admin_op)
+
         # Update on-chain policy if secret key exists
         if agent.stellar_secret_key and agent.policy:
             try:
@@ -203,6 +217,7 @@ class AIAgentViewSet(viewsets.ModelViewSet):
                     policy_dict=policy_dict,
                     admin_address=agent.wallet.address,
                     autonomy_mode=agent.autonomy_mode,
+                    signer_weight=agent.signer_weight,
                 )
                 agent.pda_tx_hash = tx_hash
                 agent.save(update_fields=["pda_tx_hash"])

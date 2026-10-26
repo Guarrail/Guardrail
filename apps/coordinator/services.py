@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import logging
@@ -5,6 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from stellar_sdk import Keypair
 
 from apps.core.utils import (
     get_utc_now,
@@ -171,9 +173,10 @@ def evaluate_and_create_request(
                 category="weekly_budget",
             )
 
-        # Human approval gate: triggered if agent requires human approval, policy requires human approval always, or amount exceeds threshold
+        # Human approval gate: triggered if agent requires human approval, weight >= 2, policy requires human approval always, or amount exceeds threshold
         if (
             agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"
+            or agent.signer_weight >= 2
             or policy.require_human_approval_always
             or amount_dec > policy.human_approval_threshold
         ):
@@ -213,7 +216,51 @@ def evaluate_and_create_request(
         ledger.reserved_weekly += amount_dec
         ledger.save(update_fields=["reserved_daily", "reserved_weekly", "daily_date", "weekly_iso_week"])
 
-        initial_status = "PENDING_APPROVAL" if eval_result.requires_human_approval else "APPROVED"
+        req_required_weight = max(2, agent.signer_weight) if (
+            agent.signer_weight >= 2
+            or agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"
+        ) else 1
+
+        initial_signatures = []
+        initial_weight = 0
+
+        # Signature 1: AI Agent PDA signs the proposal (Signer 1 of N)
+        agent_signer_addr = agent.stellar_public_key or f"agent_pda_{agent.agent_id}"
+        now = get_utc_now()
+        pda_crypto_sig = None
+        if agent.stellar_secret_key:
+            try:
+                kp = Keypair.from_secret(agent.stellar_secret_key)
+                sig_bytes = kp.sign(f"{request_id}:{amount_dec}:{recipient}:{asset_code}".encode("utf-8"))
+                pda_crypto_sig = base64.b64encode(sig_bytes).decode("ascii")
+            except Exception as e:
+                logger.warning("Could not sign proposal with agent PDA keypair: %s", str(e))
+        if not pda_crypto_sig:
+            pda_crypto_sig = f"pda_proposal_sig_{agent.agent_id}_{int(now.timestamp())}"
+
+        if req_required_weight >= 2:
+            initial_signatures.append({
+                "operator_address": agent_signer_addr,
+                "signature": pda_crypto_sig,
+                "weight": 1,
+                "role": "AGENT_PDA",
+                "notes": f"Signer 1 of {req_required_weight}: AI Agent PDA Proposal ({agent.name})",
+                "signed_at": now.isoformat(),
+            })
+            initial_weight = 1
+        elif not eval_result.requires_human_approval:
+            # Autonomous single-signer approval
+            initial_signatures.append({
+                "operator_address": agent_signer_addr,
+                "signature": pda_crypto_sig,
+                "weight": 1,
+                "role": "AGENT_PDA",
+                "notes": f"Signer 1 of 1: AI Agent Autonomous Signature ({agent.name})",
+                "signed_at": now.isoformat(),
+            })
+            initial_weight = 1
+
+        initial_status = "PENDING_APPROVAL" if (eval_result.requires_human_approval or req_required_weight >= 2) else "APPROVED"
 
         req = TransactionRequest.objects.create(
             request_id=request_id,
@@ -225,6 +272,9 @@ def evaluate_and_create_request(
             amount=amount_dec,
             status=initial_status,
             requires_human_approval=eval_result.requires_human_approval,
+            required_weight=req_required_weight,
+            collected_weight=initial_weight,
+            operator_signatures=initial_signatures,
             policy_evaluation_results=eval_dict,
             stellar_envelope_xdr=stellar_envelope_xdr,
         )
@@ -281,13 +331,52 @@ def operator_approve_request(request_id: str, operator_address: str, notes: str 
         if permit.is_single_use_consumed or permit.expires_at <= get_utc_now():
             raise ValidationError("Associated permit has expired or was already consumed.")
 
-        req.status = "APPROVED"
-        req.save(update_fields=["status", "updated_at"])
+        now = get_utc_now()
+        signatures = list(req.operator_signatures or [])
+        has_agent_sig = any(
+            s.get("role") == "AGENT_PDA"
+            or "Agent PDA" in s.get("notes", "")
+            or (req.agent and s.get("operator_address") == req.agent.stellar_public_key)
+            for s in signatures
+        )
+        if not has_agent_sig and req.agent and (req.required_weight >= 2 or req.agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"):
+            agent_addr = req.agent.stellar_public_key or f"agent_pda_{req.agent.agent_id}"
+            pda_sig = f"pda_proposal_sig_{req.agent.agent_id}_{int(req.created_at.timestamp())}"
+            signatures.insert(0, {
+                "operator_address": agent_addr,
+                "signature": pda_sig,
+                "weight": 1,
+                "role": "AGENT_PDA",
+                "notes": f"Signer 1 of {req.required_weight}: AI Agent PDA Proposal ({req.agent.name})",
+                "signed_at": req.created_at.isoformat(),
+            })
 
-        permit.status = "APPROVED"
-        permit.approved_by = operator_address
-        permit.approved_at = get_utc_now()
-        permit.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        already_signed = any(s.get("operator_address") == operator_address for s in signatures)
+        if not already_signed:
+            signer_num = len(signatures) + 1
+            is_admin = req.wallet and (operator_address == req.wallet.address)
+            signatures.append({
+                "operator_address": operator_address,
+                "signature": f"wallet_approval_{int(now.timestamp())}",
+                "weight": 1,
+                "role": "ADMIN" if is_admin else "OPERATOR",
+                "notes": notes or f"Signer {signer_num} of {req.required_weight}: {'Admin Wallet Signature' if is_admin else 'Co-Signer Signature'}",
+                "signed_at": now.isoformat(),
+            })
+            req.operator_signatures = signatures
+            req.collected_weight = sum(s.get("weight", 1) for s in signatures)
+
+        required = req.required_weight or 1
+        if req.collected_weight >= required:
+            req.status = "APPROVED"
+            permit.status = "APPROVED"
+            permit.approved_by = operator_address
+            permit.approved_at = now
+            permit.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        else:
+            req.status = "PENDING_APPROVAL"
+
+        req.save(update_fields=["operator_signatures", "collected_weight", "status", "updated_at"])
 
         record_audit_event(
             event_type="OPERATOR_APPROVED",
@@ -295,7 +384,7 @@ def operator_approve_request(request_id: str, operator_address: str, notes: str 
             actor_type="OPERATOR",
             request_id=request_id,
             permit_id=str(permit.id),
-            details={"notes": notes},
+            details={"notes": notes, "collected_weight": req.collected_weight, "required_weight": required},
         )
         return req
 
@@ -336,16 +425,56 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = False) -> T
     """
     Module 4 — Single-Permit Co-Sign and Execution:
     1. Validates permit is valid, unconsumed, and not expired.
-    2. Re-validates that canonical transaction payload hash matches permit payload hash!
-    3. Co-signs with agent PDA / backend GuardRail key.
-    4. Submits live transaction to Stellar Testnet (or testnet mock if requested).
-    5. On confirmed success: marks permit as consumed, transitions reserved budget to confirmed spent.
-    6. On failure: releases reserved budget and marks failed.
+    2. Enforces multisig threshold: collected_weight must satisfy required_weight.
+    3. Re-validates that canonical transaction payload hash matches permit payload hash!
+    4. Co-signs with agent PDA / backend GuardRail key.
+    5. Submits live transaction to Stellar Testnet (or testnet mock if requested).
+    6. On confirmed success: marks permit as consumed, transitions reserved budget to confirmed spent.
+    7. On failure: releases reserved budget and marks failed.
     """
     with transaction.atomic():
         req = TransactionRequest.objects.select_for_update().get(request_id=request_id)
+
+        # Ensure Agent PDA proposal signature is included as Signer 1 if missing
+        signatures = list(req.operator_signatures or [])
+        has_agent_sig = any(
+            s.get("role") == "AGENT_PDA"
+            or "Agent PDA" in s.get("notes", "")
+            or (req.agent and s.get("operator_address") == req.agent.stellar_public_key)
+            for s in signatures
+        )
+        if not has_agent_sig and req.agent and (req.required_weight >= 2 or req.agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"):
+            agent_addr = req.agent.stellar_public_key or f"agent_pda_{req.agent.agent_id}"
+            pda_sig = f"pda_proposal_sig_{req.agent.agent_id}_{int(req.created_at.timestamp())}"
+            signatures.insert(0, {
+                "operator_address": agent_addr,
+                "signature": pda_sig,
+                "weight": 1,
+                "role": "AGENT_PDA",
+                "notes": f"Signer 1 of {req.required_weight}: AI Agent PDA Proposal ({req.agent.name})",
+                "signed_at": req.created_at.isoformat(),
+            })
+            req.operator_signatures = signatures
+            req.collected_weight = sum(s.get("weight", 1) for s in signatures)
+            req.save(update_fields=["operator_signatures", "collected_weight"])
+
+        # Auto-promote to APPROVED if threshold is satisfied
+        if req.status == "PENDING_APPROVAL" and req.collected_weight >= (req.required_weight or 1):
+            req.status = "APPROVED"
+            if hasattr(req, "permit") and req.permit:
+                req.permit.status = "APPROVED"
+                req.permit.save(update_fields=["status"])
+            req.save(update_fields=["status", "updated_at"])
+
         if req.status != "APPROVED":
             raise ValidationError(f"Request must be in APPROVED state for co-signing (current: {req.status}).")
+
+        # Enforce multisig threshold
+        if req.required_weight >= 2 and req.collected_weight < req.required_weight:
+            raise ValidationError(
+                f"Multisig threshold not met: collected weight ({req.collected_weight}) is less than required weight ({req.required_weight}). "
+                f"Admin wallet signature is required before execution."
+            )
 
         try:
             permit = req.permit
