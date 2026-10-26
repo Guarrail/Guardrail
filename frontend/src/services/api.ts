@@ -68,6 +68,17 @@ export interface ApiTransactionRequest {
   stellar_tx_hash?: string;
   stellar_explorer_url?: string;
   execution_error?: string;
+  operator_signatures?: Array<{
+    operator_address: string;
+    signature: string;
+    weight: number;
+    notes?: string;
+    signed_at: string;
+  }>;
+  collected_weight?: number;
+  required_weight?: number;
+  agent_name?: string;
+  agent_id?: string;
   permit?: {
     id: string;
     payload_hash: string;
@@ -126,6 +137,14 @@ export interface ApiControlledWallet {
   threshold_high: number;
   is_compliant: boolean;
   compliance_message: string;
+  asset_balances?: Array<{
+    asset_code: string;
+    asset_name: string;
+    issuer: string | null;
+    balance: string;
+    is_native: boolean;
+    usd_rate: number;
+  }>;
 }
 
 export interface ApiAgent {
@@ -134,11 +153,36 @@ export interface ApiAgent {
   name: string;
   description: string;
   wallet: string;
+  wallet_address?: string;
   policy: string;
+  policy_name?: string;
+  stellar_public_key: string;
+  signer_weight: number;
+  autonomy_mode: 'AUTONOMOUS' | 'HUMAN_APPROVAL_ALWAYS';
   api_key_prefix: string;
   status: 'ACTIVE' | 'INACTIVE' | 'DISABLED' | 'REVOKED';
   is_operational: boolean;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface ApiPrivilegeEscalation {
+  id: string;
+  operator: string;
+  operator_address: string;
+  operator_alias: string;
+  requested_role: string;
+  reason: string;
+  duration_hours: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'REVOKED';
+  reviewed_by?: string;
+  reviewed_by_address?: string;
+  reviewed_at?: string;
+  expires_at?: string;
+  review_notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface ApiAuditLog {
@@ -162,6 +206,7 @@ export interface ApiSmartContractStatus {
   features: string[];
   status: string;
 }
+
 
 export const api = {
   // --- Auth / Wallet Ownership & Profile ---
@@ -217,6 +262,15 @@ export const api = {
       body: JSON.stringify({ mock_stellar: mockStellar }),
     }),
 
+  signRequest: (
+    id: string,
+    data: { operator_address: string; signature?: string; weight?: number; notes?: string }
+  ) =>
+    fetchJson<ApiTransactionRequest>(`/api/v1/coordinator/requests/${id}/sign/`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // Agent Direct Proposal (Simulation or Live)
   submitAgentRequest: (
     data: {
@@ -242,6 +296,20 @@ export const api = {
 
   // --- Policies ---
   getPolicies: () => fetchJson<ApiPolicy[] | { results: ApiPolicy[] }>('/api/v1/policies/'),
+
+  createPolicy: (data: {
+    name: string;
+    description?: string;
+    max_amount_per_tx: string;
+    daily_spending_limit: string;
+    weekly_spending_limit: string;
+    human_approval_threshold: string;
+    require_human_approval_always?: boolean;
+  }) =>
+    fetchJson<ApiPolicy>('/api/v1/policies/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   updatePolicy: (id: string, data: Partial<ApiPolicy>) =>
     fetchJson<ApiPolicy>(`/api/v1/policies/${id}/`, {
@@ -292,6 +360,22 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  updateWalletWeights: (
+    walletId: string,
+    weights: {
+      master_weight?: number;
+      agent_signer_weight?: number;
+      cosigner_weight?: number;
+      threshold_med?: number;
+      threshold_low?: number;
+      threshold_high?: number;
+    }
+  ) =>
+    fetchJson<ApiControlledWallet>(`/api/v1/wallets/${walletId}/update-weights/`, {
+      method: 'POST',
+      body: JSON.stringify(weights),
+    }),
+
   getWalletSecurityAudit: (walletId: string) =>
     fetchJson<{
       wallet_address: string;
@@ -316,9 +400,35 @@ export const api = {
     description?: string;
     wallet: string;
     policy: string;
+    stellar_public_key?: string;
+    signer_weight?: number;
+    autonomy_mode?: string;
   }) =>
-    fetchJson<{ agent: ApiAgent; api_key: string; warning: string }>('/api/v1/agents/', {
+    fetchJson<{
+      agent: ApiAgent;
+      api_key: string;
+      stellar_public_key: string;
+      stellar_secret_key?: string;
+      warning: string;
+    }>('/api/v1/agents/', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateAgent: (
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      policy?: string;
+      wallet?: string;
+      signer_weight?: number;
+      autonomy_mode?: string;
+      status?: string;
+    }
+  ) =>
+    fetchJson<ApiAgent>(`/api/v1/agents/${id}/`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 
@@ -337,7 +447,48 @@ export const api = {
       method: 'POST',
     }),
 
+  // --- Shared Account & Privilege Escalation ---
+  getOperators: () =>
+    fetchJson<
+      Array<{
+        id: string;
+        address: string;
+        alias: string;
+        role: string;
+        effective_role: string;
+        is_verified: boolean;
+        last_login: string | null;
+      }>
+    >('/api/v1/accounts/operators/'),
+
+  getEscalationRequests: () =>
+    fetchJson<ApiPrivilegeEscalation[] | { results: ApiPrivilegeEscalation[] }>('/api/v1/accounts/escalations/'),
+
+  createEscalationRequest: (data: {
+    operator_address: string;
+    requested_role: string;
+    reason: string;
+    duration_hours?: number;
+  }) =>
+    fetchJson<ApiPrivilegeEscalation>('/api/v1/accounts/escalations/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  approveEscalationRequest: (id: string, reviewerAddress: string, notes: string = '') =>
+    fetchJson<ApiPrivilegeEscalation>(`/api/v1/accounts/escalations/${id}/approve/`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewer_address: reviewerAddress, notes }),
+    }),
+
+  rejectEscalationRequest: (id: string, reviewerAddress: string, notes: string = '') =>
+    fetchJson<ApiPrivilegeEscalation>(`/api/v1/accounts/escalations/${id}/reject/`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewer_address: reviewerAddress, notes }),
+    }),
+
   // --- Audit Logs ---
+
   getAuditLogs: (eventType?: string, requestId?: string) => {
     const params = new URLSearchParams();
     if (eventType) params.append('event_type', eventType);

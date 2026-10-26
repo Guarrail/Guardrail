@@ -80,8 +80,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="flex flex-col gap-6 p-4 sm:p-8 max-w-7xl mx-auto w-full font-manrope">
       {/* Toast Notification */}
       {toast && (
-        <div className="p-3.5 bg-[#202938] border border-[#4AC777] text-white rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-2">
-          <Check className="w-4 h-4 text-[#4AC777]" />
+        <div className="p-4 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-2xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 backdrop-blur-xl animate-in fade-in duration-200 shadow-lg">
+          <Check className="w-4 h-4 text-emerald-400" />
           <span>{toast}</span>
         </div>
       )}
@@ -89,35 +89,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Top Grid: Wallets & Agent/Policy Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* CARD 1: WALLETS */}
-        <div className="p-6 sm:p-8 bg-[#202938] border border-[#2B3340] rounded-xl flex flex-col gap-5">
+        <div className="p-6 sm:p-8 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col gap-5 shadow-[0_8px_32px_rgba(0,0,0,0.36),inset_0_1px_0_0_rgba(255,255,255,0.06)]">
           <h2 className="font-space text-xl font-bold text-white tracking-tight">
-            Wallets
+            Registered Wallets
           </h2>
 
-          <div className="flex flex-col divide-y divide-[#2B3340] text-xs sm:text-sm">
-            <div className="py-3 flex flex-col gap-1">
-              <span className="text-[#9099A5]">Operator wallet</span>
-              <span className="font-mono text-white text-xs break-all">
+          <div className="flex flex-col divide-y divide-white/[0.06] text-xs sm:text-sm">
+            <div className="py-3 flex flex-col gap-1.5">
+              <span className="text-white/50">Operator Wallet (Human Co-Signer)</span>
+              <span className="font-mono text-white/90 text-xs break-all bg-white/[0.03] p-2.5 rounded-xl border border-white/[0.08]">
                 {operatorWallet.address}
               </span>
             </div>
 
-            <div className="py-3 flex flex-col gap-1">
-              <span className="text-[#9099A5]">Controlled wallet</span>
-              <span className="font-mono text-white text-xs break-all">
+            <div className="py-3 flex flex-col gap-1.5">
+              <span className="text-white/50">Controlled Treasury Wallet</span>
+              <span className="font-mono text-white/90 text-xs break-all bg-white/[0.03] p-2.5 rounded-xl border border-white/[0.08]">
                 {controlledWallet.address}
               </span>
             </div>
 
             <div className="py-3 flex items-center justify-between">
-              <span className="text-[#9099A5]">Threshold</span>
-              <span className="font-space text-white font-bold">2 of 3 signers</span>
+              <span className="text-white/50">Active Threshold</span>
+              <span className="font-space text-white font-bold tabular-nums">2 of 3 Signers</span>
             </div>
 
             <div className="py-3 flex items-center justify-between">
-              <span className="text-[#9099A5]">Co-signer</span>
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#4AC777]/15 text-[#4AC777] font-bold text-xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#4AC777]" />
+              <span className="text-white/50">Backend Co-Signer Engine</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-bold text-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 Connected
               </span>
             </div>
@@ -125,34 +125,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* CARD 2: AGENT & POLICY */}
-        <div className="p-6 sm:p-8 bg-[#202938] border border-[#2B3340] rounded-xl flex flex-col justify-between gap-5 h-full">
+        <div className="p-6 sm:p-8 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col justify-between gap-5 h-full shadow-[0_8px_32px_rgba(0,0,0,0.36),inset_0_1px_0_0_rgba(255,255,255,0.06)]">
           <div>
             <h2 className="font-space text-xl font-bold text-white tracking-tight">
-              Agent & policy
+              Agent & Policy Configuration
             </h2>
 
-            <div className="flex flex-col divide-y divide-[#2B3340] text-xs sm:text-sm mt-3">
+            <div className="flex flex-col divide-y divide-white/[0.06] text-xs sm:text-sm mt-3">
               <div className="py-2.5 flex items-center justify-between">
-                <span className="text-[#9099A5]">Registered agent</span>
+                <span className="text-white/50">Registered Agent</span>
                 <span className="text-white font-semibold">Payroll Assistant (agt_7f3k29xq)</span>
               </div>
 
               <div className="py-2.5 flex items-center justify-between">
-                <span className="text-[#9099A5]">Agent status</span>
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#4AC777]/15 text-[#4AC777] font-bold text-xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#4AC777]" />
+                <span className="text-white/50">Agent Operational State</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-bold text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   Active
                 </span>
               </div>
 
               <div className="py-2.5 flex items-center justify-between">
-                <span className="text-[#9099A5]">Active policy</span>
-                <span className="text-white font-semibold">Default v3</span>
+                <span className="text-white/50">Active Policy Version</span>
+                <span className="text-white font-semibold">v3.0 (Sep-53)</span>
               </div>
 
               <div className="py-2.5 flex items-center justify-between">
-                <span className="text-[#9099A5]">API key</span>
-                <span className="font-mono text-xs text-white">gr_live_7f3k••••••••••••</span>
+                <span className="text-white/50">API Key Mask</span>
+                <span className="font-mono text-xs text-white/80">gr_live_7f3k••••••••••••</span>
               </div>
             </div>
           </div>
@@ -160,7 +160,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <button
             onClick={handleRotateApiKey}
             disabled={isRotating}
-            className="px-4 py-2 bg-[#202938] hover:bg-[#2B3340] border border-[#2B3340] text-xs font-semibold text-white rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer self-start disabled:opacity-50"
+            className="px-4 py-2.5 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-white rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer self-start disabled:opacity-50 active:scale-95 shadow-xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRotating ? 'animate-spin' : ''}`} />
             <span>Rotate API Key</span>
@@ -169,33 +169,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* CARD 3: EMERGENCY CONTROLS (Circuit Breakers) */}
-      <div className="p-6 sm:p-8 bg-[#202938] border border-[#2B3340] rounded-xl flex flex-col gap-4">
+      <div className="p-6 sm:p-8 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col gap-4 shadow-[0_8px_32px_rgba(0,0,0,0.36),inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         <div>
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-[#ED4A49]" />
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="w-5 h-5 text-rose-400" />
             <h2 className="font-space text-xl font-bold text-white tracking-tight">
-              Emergency controls
+              Emergency Killswitch & Controls
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-[#9099A5] mt-1">
-            Immediately stop the agent from submitting any new requests or freeze the wallet pipeline.
+          <p className="text-xs sm:text-sm text-white/50 mt-1">
+            Immediately freeze all automated signing pipelines and reject any incoming agent requests.
           </p>
         </div>
 
         {controlledWallet.isPaused && (
-          <div className="p-3.5 bg-[#ED4A49]/15 border border-[#ED4A49]/40 rounded-lg text-xs text-[#ED4A49] font-bold flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>AGENT REQUEST PROCESSING IS CURRENTLY FROZEN. All incoming requests will be rejected.</span>
+          <div className="p-4 bg-rose-500/15 border border-rose-500/30 rounded-2xl text-xs text-rose-300 font-bold flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>AGENT REQUEST PROCESSING IS CURRENTLY FROZEN. All incoming requests will be rejected by policy.</span>
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-4 pt-2">
+        <div className="flex flex-wrap items-center gap-3 pt-2">
           <button
             onClick={toggleEmergencyPause}
-            className={`px-5 py-2.5 text-xs font-bold rounded-md transition-all shadow-md active:scale-98 cursor-pointer flex items-center gap-2 ${
+            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-2 ${
               controlledWallet.isPaused
-                ? 'bg-[#4AC777] hover:bg-[#3fb86b] text-[#09101A]'
-                : 'bg-[#ED4A49] hover:bg-red-600 text-white'
+                ? 'bg-emerald-400 hover:bg-emerald-300 text-[#080C14] shadow-[0_4px_16px_rgba(48,209,88,0.3)]'
+                : 'bg-rose-500/90 hover:bg-rose-600 text-white shadow-[0_4px_16px_rgba(255,69,58,0.3)]'
             }`}
           >
             {controlledWallet.isPaused ? (
@@ -213,9 +213,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <button
             onClick={onResetData}
-            className="px-4 py-2.5 bg-[#202938] hover:bg-[#2B3340] border border-[#2B3340] text-xs font-semibold text-[#EFF2F5] rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+            className="px-4 py-2.5 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-white/80 hover:text-white rounded-xl transition-all flex items-center gap-2 cursor-pointer active:scale-95"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-[#9099A5]" />
+            <RotateCcw className="w-3.5 h-3.5 text-white/50" />
             <span>Reset Demo State</span>
           </button>
         </div>
@@ -223,3 +223,4 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     </div>
   );
 };
+

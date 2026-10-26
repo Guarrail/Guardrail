@@ -5,8 +5,14 @@ from drf_spectacular.utils import extend_schema
 
 from apps.accounts.models import Operator
 from apps.core.stellar import get_cosigner_keypair, generate_new_stellar_keypair
+from apps.audit.models import record_audit_event
 from .models import ControlledWallet
-from .serializers import ControlledWalletSerializer, RegisterWalletSerializer
+from .serializers import (
+    ControlledWalletSerializer,
+    RegisterWalletSerializer,
+    UpdateWalletWeightsSerializer,
+)
+
 
 
 class ControlledWalletViewSet(viewsets.ModelViewSet):
@@ -79,3 +85,35 @@ class ControlledWalletViewSet(viewsets.ModelViewSet):
                 "cosigner_required": (wallet.agent_signer_weight + wallet.cosigner_weight) >= wallet.threshold_med,
             }
         )
+
+    @extend_schema(
+        request=UpdateWalletWeightsSerializer,
+        responses={200: ControlledWalletSerializer},
+        description="Update multisig signing weights and thresholds on the controlled wallet.",
+    )
+    @action(detail=True, methods=["post", "patch"], url_path="update-weights")
+    def update_weights(self, request, pk=None):
+        wallet = self.get_object()
+        serializer = UpdateWalletWeightsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        for field, val in data.items():
+            setattr(wallet, field, val)
+        wallet.save()
+
+        record_audit_event(
+            event_type="WALLET_MULTISIG_WEIGHTS_UPDATED",
+            actor_id=str(request.headers.get("X-Operator-Address") or "ADMIN"),
+            actor_type="OPERATOR",
+            details={
+                "wallet_address": wallet.address,
+                "master_weight": wallet.master_weight,
+                "agent_signer_weight": wallet.agent_signer_weight,
+                "cosigner_weight": wallet.cosigner_weight,
+                "threshold_med": wallet.threshold_med,
+            },
+        )
+
+        return Response(ControlledWalletSerializer(wallet).data, status=status.HTTP_200_OK)
+

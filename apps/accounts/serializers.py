@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from apps.core.stellar import is_valid_stellar_address
-from .models import Operator
+from .models import Operator, PrivilegeEscalationRequest
 
 
 class ChallengeRequestSerializer(serializers.Serializer):
@@ -31,7 +31,68 @@ class VerifySignatureSerializer(serializers.Serializer):
 
 
 class OperatorSerializer(serializers.ModelSerializer):
+    effective_role = serializers.CharField(read_only=True)
+
     class Meta:
         model = Operator
-        fields = ["id", "address", "alias", "is_verified", "last_login", "created_at"]
+        fields = [
+            "id",
+            "address",
+            "alias",
+            "role",
+            "effective_role",
+            "is_verified",
+            "last_login",
+            "created_at",
+        ]
         read_only_fields = ["id", "is_verified", "last_login", "created_at"]
+
+
+class PrivilegeEscalationRequestSerializer(serializers.ModelSerializer):
+    operator_address = serializers.CharField(source="operator.address", read_only=True)
+    operator_alias = serializers.CharField(source="operator.alias", read_only=True)
+    reviewed_by_address = serializers.CharField(source="reviewed_by.address", read_only=True, default=None)
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PrivilegeEscalationRequest
+        fields = [
+            "id",
+            "operator",
+            "operator_address",
+            "operator_alias",
+            "requested_role",
+            "reason",
+            "duration_hours",
+            "status",
+            "reviewed_by",
+            "reviewed_by_address",
+            "reviewed_at",
+            "expires_at",
+            "review_notes",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "reviewed_by",
+            "reviewed_at",
+            "expires_at",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class CreatePrivilegeEscalationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivilegeEscalationRequest
+        fields = ["requested_role", "reason", "duration_hours"]
+
+
+class ReviewPrivilegeEscalationSerializer(serializers.Serializer):
+    reviewer_address = serializers.CharField(max_length=56)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+

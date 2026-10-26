@@ -7,6 +7,8 @@ from rest_framework.permissions import AllowAny
 from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
+from apps.core.utils import get_utc_now
+from apps.audit.models import record_audit_event
 from apps.agents.authentication import AgentAPIKeyAuthentication
 from apps.agents.models import AIAgent
 from apps.wallets.models import ControlledWallet
@@ -17,10 +19,12 @@ from .serializers import (
     TransactionRequestSerializer,
     PermitSerializer,
     OperatorApprovalSerializer,
+    OperatorSignTransactionSerializer,
     OperatorRejectionSerializer,
     DashboardStatsSerializer,
     AgentPolicySummaryResponseSerializer,
 )
+
 from .services import (
     evaluate_and_create_request,
     operator_approve_request,
@@ -184,6 +188,71 @@ class OperatorRequestViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(TransactionRequestSerializer(updated_req).data)
         except ValidationError as e:
             return Response({"error": str(e.message if hasattr(e, "message") else e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=OperatorSignTransactionSerializer,
+        responses={200: TransactionRequestSerializer},
+        description="Member operator submits cryptographic signature or authorization for a pending transaction.",
+    )
+    @action(detail=True, methods=["post"], url_path="sign")
+    def sign(self, request, pk=None):
+        req = self.get_object()
+        serializer = OperatorSignTransactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        operator_address = serializer.validated_data["operator_address"]
+        signature = serializer.validated_data.get("signature", "")
+        weight = serializer.validated_data.get("weight", 1)
+        notes = serializer.validated_data.get("notes", "")
+
+        signatures = list(req.operator_signatures or [])
+        # Prevent duplicate signing by the same operator
+        for existing in signatures:
+            if existing.get("operator_address") == operator_address:
+                return Response(
+                    {"error": f"Operator {operator_address[:8]} has already signed this transaction."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        now = get_utc_now()
+        signatures.append({
+            "operator_address": operator_address,
+            "signature": signature or f"sep53_sig_{now.timestamp()}",
+            "weight": weight,
+            "notes": notes,
+            "signed_at": now.isoformat(),
+        })
+
+        req.operator_signatures = signatures
+        req.collected_weight = sum(s.get("weight", 1) for s in signatures)
+
+        # Check if threshold is reached
+        required = req.required_weight or (req.wallet.threshold_med if req.wallet else 2)
+        if req.collected_weight >= required and req.status == "PENDING_APPROVAL":
+            req.status = "APPROVED"
+            if hasattr(req, "permit") and req.permit:
+                req.permit.status = "APPROVED"
+                req.permit.approved_by = operator_address
+                req.permit.approved_at = now
+                req.permit.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+
+        req.save(update_fields=["operator_signatures", "collected_weight", "status", "updated_at"])
+
+        record_audit_event(
+            event_type="OPERATOR_SIGNED_TRANSACTION",
+            actor_id=operator_address,
+            actor_type="OPERATOR",
+            request_id=req.request_id,
+            details={
+                "weight": weight,
+                "collected_weight": req.collected_weight,
+                "required_weight": required,
+                "new_status": req.status,
+            },
+        )
+
+        return Response(TransactionRequestSerializer(req).data)
+
 
     @extend_schema(
         request=OperatorRejectionSerializer,

@@ -1,19 +1,26 @@
 import base64
 import secrets
-from rest_framework import status
+from datetime import timedelta
+from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema
 from stellar_sdk import Keypair
 
 from apps.core.utils import get_utc_now
-from .models import Operator
+from apps.audit.models import record_audit_event
+from .models import Operator, PrivilegeEscalationRequest
 from .serializers import (
     ChallengeRequestSerializer,
     ChallengeResponseSerializer,
     VerifySignatureSerializer,
     OperatorSerializer,
+    PrivilegeEscalationRequestSerializer,
+    CreatePrivilegeEscalationSerializer,
+    ReviewPrivilegeEscalationSerializer,
 )
+
 
 
 class OperatorChallengeView(APIView):
@@ -202,3 +209,155 @@ class OperatorMeView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Operator.DoesNotExist:
             return Response({"error": "Operator not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
+    """List and inspect verified operators for the shared account."""
+    queryset = Operator.objects.all().order_by("-created_at")
+    serializer_class = OperatorSerializer
+
+
+class PrivilegeEscalationViewSet(viewsets.ModelViewSet):
+    """
+    Shared account multi-operator privilege escalation workflow.
+    Enforces dual control: an operator cannot approve their own escalation request.
+    """
+
+    queryset = PrivilegeEscalationRequest.objects.all().select_related("operator", "reviewed_by").order_by("-created_at")
+    serializer_class = PrivilegeEscalationRequestSerializer
+
+    def create(self, request, *args, **kwargs):
+        operator_address = (
+            request.data.get("operator_address")
+            or request.headers.get("X-Operator-Address")
+            or request.query_params.get("operator_address")
+        )
+        if not operator_address:
+            return Response(
+                {"error": "operator_address is required to submit a privilege escalation request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        operator, _ = Operator.objects.get_or_create(address=operator_address)
+
+        serializer = CreatePrivilegeEscalationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        escalation = PrivilegeEscalationRequest.objects.create(
+            operator=operator,
+            **serializer.validated_data,
+        )
+
+        record_audit_event(
+            event_type="PRIVILEGE_ESCALATION_REQUESTED",
+            actor_id=operator.address,
+            actor_type="OPERATOR",
+            details={
+                "requested_role": escalation.requested_role,
+                "reason": escalation.reason,
+                "duration_hours": escalation.duration_hours,
+            },
+        )
+
+        return Response(
+            PrivilegeEscalationRequestSerializer(escalation).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=ReviewPrivilegeEscalationSerializer,
+        responses={200: PrivilegeEscalationRequestSerializer},
+        description="Dual-control authorization: Approve an operator's privilege escalation request.",
+    )
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        escalation = self.get_object()
+
+        if escalation.status != "PENDING":
+            return Response(
+                {"error": f"Request is already {escalation.status} and cannot be approved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ReviewPrivilegeEscalationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reviewer_address = serializer.validated_data["reviewer_address"]
+        notes = serializer.validated_data.get("notes", "")
+
+        reviewer, _ = Operator.objects.get_or_create(address=reviewer_address)
+
+        # DUAL CONTROL ENFORCEMENT: Requester CANNOT approve their own escalation!
+        if escalation.operator.address.strip() == reviewer.address.strip():
+            return Response(
+                {
+                    "error": "Dual-Control Policy Violation: Requester cannot approve their own privilege escalation request. A distinct administrator must authorize."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        now = get_utc_now()
+        escalation.status = "APPROVED"
+        escalation.reviewed_by = reviewer
+        escalation.reviewed_at = now
+        escalation.expires_at = now + timedelta(hours=escalation.duration_hours)
+        escalation.review_notes = notes
+        escalation.save(
+            update_fields=["status", "reviewed_by", "reviewed_at", "expires_at", "review_notes", "updated_at"]
+        )
+
+        record_audit_event(
+            event_type="PRIVILEGE_ESCALATION_APPROVED",
+            actor_id=reviewer.address,
+            actor_type="OPERATOR",
+            details={
+                "requester_address": escalation.operator.address,
+                "elevated_role": escalation.requested_role,
+                "expires_at": escalation.expires_at.isoformat(),
+                "notes": notes,
+            },
+        )
+
+        return Response(PrivilegeEscalationRequestSerializer(escalation).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=ReviewPrivilegeEscalationSerializer,
+        responses={200: PrivilegeEscalationRequestSerializer},
+        description="Reject an operator's privilege escalation request.",
+    )
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        escalation = self.get_object()
+
+        if escalation.status != "PENDING":
+            return Response(
+                {"error": f"Request is already {escalation.status}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ReviewPrivilegeEscalationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reviewer_address = serializer.validated_data["reviewer_address"]
+        notes = serializer.validated_data.get("notes", "")
+
+        reviewer, _ = Operator.objects.get_or_create(address=reviewer_address)
+
+        now = get_utc_now()
+        escalation.status = "REJECTED"
+        escalation.reviewed_by = reviewer
+        escalation.reviewed_at = now
+        escalation.review_notes = notes
+        escalation.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_notes", "updated_at"])
+
+        record_audit_event(
+            event_type="PRIVILEGE_ESCALATION_REJECTED",
+            actor_id=reviewer.address,
+            actor_type="OPERATOR",
+            details={
+                "requester_address": escalation.operator.address,
+                "requested_role": escalation.requested_role,
+                "notes": notes,
+            },
+        )
+
+        return Response(PrivilegeEscalationRequestSerializer(escalation).data, status=status.HTTP_200_OK)
+

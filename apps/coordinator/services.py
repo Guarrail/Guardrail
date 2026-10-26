@@ -135,9 +135,14 @@ def evaluate_and_create_request(
                 category="weekly_budget",
             )
 
-        # Human approval gate
-        if policy.require_human_approval_always or amount_dec > policy.human_approval_threshold:
+        # Human approval gate: triggered if agent requires human approval, policy requires human approval always, or amount exceeds threshold
+        if (
+            agent.autonomy_mode == "HUMAN_APPROVAL_ALWAYS"
+            or policy.require_human_approval_always
+            or amount_dec > policy.human_approval_threshold
+        ):
             eval_result.requires_human_approval = True
+
 
         # 4. Handle Blocked vs Eligible Requests
         if not eval_result.is_passed:

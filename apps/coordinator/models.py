@@ -41,6 +41,11 @@ class TransactionRequest(BaseModel):
     stellar_tx_hash = models.CharField(max_length=100, blank=True, default="", db_index=True)
     execution_error = models.TextField(blank=True, default="")
 
+    operator_signatures = models.JSONField(default=list, blank=True, help_text="Signatures collected from member operators")
+    collected_weight = models.PositiveSmallIntegerField(default=0, help_text="Total signing weight accumulated so far")
+    required_weight = models.PositiveSmallIntegerField(default=2, help_text="Threshold weight required for execution/approval")
+
+
     class Meta:
         ordering = ["-created_at"]
 

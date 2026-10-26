@@ -6,7 +6,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
-from apps.accounts.views import OperatorChallengeView, OperatorVerifyView, OperatorMeView
+from apps.accounts.views import (
+    OperatorChallengeView,
+    OperatorVerifyView,
+    OperatorMeView,
+    OperatorViewSet,
+    PrivilegeEscalationViewSet,
+)
+
 from apps.wallets.views import ControlledWalletViewSet
 from apps.policies.views import PolicyViewSet, AllowedRecipientViewSet, AllowedAssetViewSet
 from apps.agents.views import AIAgentViewSet
@@ -54,6 +61,8 @@ class HealthCheckView(APIView):
 
 
 router = DefaultRouter()
+router.register(r"accounts/operators", OperatorViewSet, basename="operator")
+router.register(r"accounts/escalations", PrivilegeEscalationViewSet, basename="escalation")
 router.register(r"wallets", ControlledWalletViewSet, basename="wallet")
 router.register(r"policies", PolicyViewSet, basename="policy")
 router.register(r"recipients", AllowedRecipientViewSet, basename="recipient")
@@ -62,6 +71,7 @@ router.register(r"agents", AIAgentViewSet, basename="agent")
 router.register(r"coordinator/requests", OperatorRequestViewSet, basename="coordinator-request")
 router.register(r"coordinator/permits", OperatorPermitViewSet, basename="coordinator-permit")
 router.register(r"audit/logs", AuditLogViewSet, basename="audit-log")
+
 
 urlpatterns = [
     # Root redirect to Swagger Docs

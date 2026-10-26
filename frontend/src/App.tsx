@@ -172,8 +172,12 @@ function mapBackendRequest(r: ApiTransactionRequest): AgentRequest {
     permitId: r.permit?.id || '',
     stellarTxHash: r.stellar_tx_hash,
     checks: checklist,
+    operatorSignatures: r.operator_signatures,
+    collectedWeight: r.collected_weight,
+    requiredWeight: r.required_weight,
   };
 }
+
 
 export default function App() {
   const navigate = useNavigate();
@@ -304,14 +308,22 @@ export default function App() {
         setControlledWallet((prev) => ({
           ...prev,
           id: w.id,
+          name: w.name,
           address: w.address,
           network: w.network === 'PUBLIC' ? 'Stellar Public' : 'Stellar Testnet',
           balanceUsdc: parseFloat(w.balance),
           balanceXlm: w.balance,
+          masterWeight: w.master_weight,
+          agentSignerAddress: w.agent_signer_address,
+          agentSignerWeight: w.agent_signer_weight,
+          cosignerAddress: w.cosigner_address,
+          cosignerWeight: w.cosigner_weight,
           currentThreshold: w.threshold_med,
           currentSignersCount: 3,
+          assetBalances: w.asset_balances,
         }));
       }
+
 
       // 2. Fetch Policies
       const policiesData = await api.getPolicies().catch(() => null);

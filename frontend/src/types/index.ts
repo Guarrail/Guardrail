@@ -25,6 +25,14 @@ export interface PolicyCheckItem {
   passed: boolean;
 }
 
+export interface OperatorSignature {
+  operator_address: string;
+  signature: string;
+  weight: number;
+  notes?: string;
+  signed_at: string;
+}
+
 export interface AgentRequest {
   id: string; // e.g. REQ-1042 or UUID
   backendId?: string; // Backend UUID
@@ -49,11 +57,16 @@ export interface AgentRequest {
   permitId: string;
   stellarTxHash?: string;
   checks: PolicyCheckItem[];
+  operatorSignatures?: OperatorSignature[];
+  collectedWeight?: number;
+  requiredWeight?: number;
 }
 
 export interface PolicyConfig {
   id?: string;
   name?: string;
+  description?: string;
+  version?: number;
   maxPerTransaction: number;
   dailyLimit: number;
   weeklyLimit: number;
@@ -76,6 +89,15 @@ export interface PolicyConfig {
   }>;
 }
 
+export interface WalletAsset {
+  asset_code: string;
+  asset_name: string;
+  issuer: string | null;
+  balance: string;
+  is_native: boolean;
+  usd_rate: number;
+}
+
 export interface WalletSigner {
   role: string;
   name: string;
@@ -88,16 +110,23 @@ export interface WalletSigner {
 export interface ControlledWalletState {
   id?: string;
   address: string;
+  name?: string;
   network: string;
   balanceUsdc: number;
   balanceXlm?: string;
   ownershipVerified: boolean;
+  masterWeight?: number;
+  agentSignerAddress?: string;
+  agentSignerWeight?: number;
+  cosignerAddress?: string;
+  cosignerWeight?: number;
   currentSignersCount: number;
   currentThreshold: number;
   proposedThreshold: number;
   isPaused: boolean;
   smartContractConnected?: boolean;
   smartContractAddress?: string;
+  assetBalances?: WalletAsset[];
 }
 
 export interface OperatorWalletState {
@@ -109,6 +138,57 @@ export interface OperatorWalletState {
   username?: string;
   displayName?: string;
   role?: string;
+  effectiveRole?: string;
   avatar?: string;
   email?: string;
 }
+
+export interface AIAgentItem {
+  id: string;
+  agent_id: string;
+  name: string;
+  description: string;
+  wallet: string;
+  wallet_address?: string;
+  policy: string;
+  policy_name?: string;
+  stellar_public_key: string;
+  signer_weight: number;
+  autonomy_mode: 'AUTONOMOUS' | 'HUMAN_APPROVAL_ALWAYS';
+  api_key_prefix: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'DISABLED' | 'REVOKED';
+  is_operational: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PrivilegeEscalationItem {
+  id: string;
+  operator: string;
+  operator_address: string;
+  operator_alias: string;
+  requested_role: string;
+  reason: string;
+  duration_hours: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'REVOKED';
+  reviewed_by?: string;
+  reviewed_by_address?: string;
+  reviewed_at?: string;
+  expires_at?: string;
+  review_notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface OperatorProfile {
+  id: string;
+  address: string;
+  alias: string;
+  role: string;
+  effective_role: string;
+  is_verified: boolean;
+  last_login: string | null;
+  created_at: string;
+}
+

@@ -45,29 +45,31 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
 
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-8 max-w-7xl mx-auto w-full font-manrope">
-      {/* Search & Export Actions */}
+      {/* Search & Export Actions - Apple Segmented Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative min-w-[240px]">
-            <Search className="w-4 h-4 text-[#9099A5] absolute left-3 top-1/2 -translate-y-1/2" />
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Apple Search Input */}
+          <div className="relative min-w-[260px]">
+            <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search request ID, address or tx hash..."
+              placeholder="Filter by ID, recipient, or tx hash..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-[#202938] border border-[#2B3340] rounded-lg text-xs text-white placeholder-[#9099A5] focus:outline-hidden focus:border-[#4AC777]"
+              className="w-full pl-9.5 pr-4 py-2 bg-white/[0.04] border border-white/[0.08] rounded-full text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-white/20 backdrop-blur-xl transition-all"
             />
           </div>
 
-          <div className="flex items-center gap-1 bg-[#202938] p-1 rounded-lg border border-[#2B3340] text-xs">
+          {/* Apple Segmented Status Filter */}
+          <div className="flex items-center gap-1 bg-white/[0.04] p-1 rounded-full border border-white/[0.08] text-xs backdrop-blur-xl">
             {(['all', 'Executed', 'Blocked', 'Pending', 'Rejected'] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                className={`px-3 py-1.5 rounded-full font-semibold transition-all duration-200 cursor-pointer ${
                   statusFilter === st
-                    ? 'bg-white text-[#09101A] font-bold'
-                    : 'text-[#9099A5] hover:text-white'
+                    ? 'bg-white text-[#080C14] shadow-sm'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
                 {st === 'all' ? 'All Records' : st}
@@ -78,19 +80,19 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
 
         <button
           onClick={handleExportJson}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#202938] hover:bg-[#2B3340] border border-[#2B3340] text-xs font-semibold text-white rounded-md transition-colors cursor-pointer self-end sm:self-auto shrink-0"
+          className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-white rounded-full transition-all cursor-pointer self-end sm:self-auto shrink-0 shadow-xs active:scale-95"
         >
-          <Download className="w-3.5 h-3.5 text-[#4AC777]" />
+          <Download className="w-3.5 h-3.5 text-emerald-400" />
           <span>Export JSON</span>
         </button>
       </div>
 
       {/* Main Audit Log Table */}
-      <div className="bg-[#202938] border border-[#2B3340] rounded-xl overflow-hidden shadow-xs">
+      <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.36),inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-[#2B3340] text-[11px] font-space font-semibold text-[#9099A5] tracking-wider uppercase bg-[#1A222F]/60">
+              <tr className="border-b border-white/[0.08] text-[10px] font-space font-semibold text-white/50 tracking-wider uppercase bg-white/[0.02]">
                 <th className="py-3 px-4 sm:px-6">REQUEST</th>
                 <th className="py-3 px-4">AGENT</th>
                 <th className="py-3 px-4">RECIPIENT</th>
@@ -103,7 +105,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                 <th className="py-3 px-4 sm:px-6 text-right">ACTION</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2B3340] text-xs sm:text-sm">
+            <tbody className="divide-y divide-white/[0.05] text-xs sm:text-sm">
               {filtered.map((req) => {
                 const isExecuted = req.status === 'Executed' || req.status === 'Approved';
                 const isBlocked = req.status === 'Blocked';
@@ -114,21 +116,21 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                   <tr
                     key={req.id}
                     onClick={() => onSelectRequest(req)}
-                    className="hover:bg-[#273243]/60 transition-colors cursor-pointer group"
+                    className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
                   >
                     {/* REQUEST ID */}
-                    <td className="py-4 px-4 sm:px-6 font-space font-medium text-white group-hover:text-[#4AC777] transition-colors whitespace-nowrap">
+                    <td className="py-4 px-4 sm:px-6 font-space font-medium text-white group-hover:text-emerald-400 transition-colors whitespace-nowrap">
                       {req.id}
                     </td>
 
                     {/* AGENT */}
-                    <td className="py-4 px-4 font-space text-white whitespace-nowrap">
+                    <td className="py-4 px-4 font-space text-white/90 whitespace-nowrap">
                       {req.agentName}
                     </td>
 
                     {/* RECIPIENT */}
                     <td className="py-4 px-4">
-                      <span className="font-space font-bold text-white text-xs">
+                      <span className="font-space font-semibold text-white text-xs">
                         {req.recipientAddress.slice(0, 5)}…{req.recipientAddress.slice(-4)}
                       </span>
                     </td>
@@ -141,10 +143,10 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                     {/* POLICY DECISION */}
                     <td className="py-4 px-4 whitespace-nowrap">
                       <span
-                        className={`font-medium ${
+                        className={`font-semibold ${
                           req.policyDecisionText === 'Allowed'
                             ? 'text-white'
-                            : 'text-[#ED4A49]'
+                            : 'text-rose-400'
                         }`}
                       >
                         {req.policyDecisionText}
@@ -152,28 +154,28 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                     </td>
 
                     {/* APPROVAL */}
-                    <td className="py-4 px-4 text-[#9099A5] whitespace-nowrap text-xs">
+                    <td className="py-4 px-4 text-white/50 whitespace-nowrap text-xs">
                       {req.approvalStatus}
                     </td>
 
                     {/* STATUS BADGE */}
                     <td className="py-4 px-4 whitespace-nowrap">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
                           isPending
-                            ? 'bg-[#F2B036]/15 text-[#F2B036]'
+                            ? 'bg-amber-400/10 text-amber-300 border border-amber-400/25'
                             : isBlocked || isRejected
-                            ? 'bg-[#ED4A49]/15 text-[#ED4A49]'
-                            : 'bg-[#4AC777]/15 text-[#4AC777]'
+                            ? 'bg-rose-400/10 text-rose-300 border border-rose-400/25'
+                            : 'bg-emerald-400/10 text-emerald-300 border border-emerald-400/25'
                         }`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${
                             isPending
-                              ? 'bg-[#F2B036]'
+                              ? 'bg-amber-400'
                               : isBlocked || isRejected
-                              ? 'bg-[#ED4A49]'
-                              : 'bg-[#4AC777]'
+                              ? 'bg-rose-400'
+                              : 'bg-emerald-400'
                           }`}
                         />
                         <span>{req.status}</span>
@@ -181,18 +183,18 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                     </td>
 
                     {/* TIMESTAMP */}
-                    <td className="py-4 px-4 text-[#9099A5] whitespace-nowrap text-xs">
+                    <td className="py-4 px-4 text-white/50 whitespace-nowrap text-xs">
                       {req.time}
                     </td>
 
                     {/* STELLAR TX */}
                     <td className="py-4 px-4 font-mono text-xs whitespace-nowrap">
                       {req.stellarTxHash ? (
-                        <span className="text-white" title={req.stellarTxHash}>
-                          {req.stellarTxHash.slice(0, 10)}...{req.stellarTxHash.slice(-4)}
+                        <span className="text-white/80 font-mono" title={req.stellarTxHash}>
+                          {req.stellarTxHash.slice(0, 8)}…{req.stellarTxHash.slice(-4)}
                         </span>
                       ) : (
-                        <span className="text-[#9099A5]">-</span>
+                        <span className="text-white/30">-</span>
                       )}
                     </td>
 
@@ -204,7 +206,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 text-xs text-[#4AC777] hover:underline font-semibold"
+                          className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 font-semibold transition-colors"
                         >
                           <span>Explorer</span>
                           <ExternalLink className="w-3 h-3" />
@@ -215,7 +217,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
                             e.stopPropagation();
                             onSelectRequest(req);
                           }}
-                          className="text-xs text-[#9099A5] hover:text-white"
+                          className="px-2.5 py-1 text-xs text-white/50 hover:text-white bg-white/[0.04] border border-white/[0.08] rounded-lg transition-colors"
                         >
                           Details
                         </button>
@@ -231,3 +233,4 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ requests, onSelectRe
     </div>
   );
 };
+

@@ -47,6 +47,8 @@ class PermitSerializer(serializers.ModelSerializer):
 class TransactionRequestSerializer(serializers.ModelSerializer):
     permit = PermitSerializer(read_only=True)
     stellar_explorer_url = serializers.SerializerMethodField()
+    agent_name = serializers.CharField(source="agent.name", read_only=True)
+    agent_id = serializers.CharField(source="agent.agent_id", read_only=True)
 
     class Meta:
         model = TransactionRequest
@@ -54,6 +56,8 @@ class TransactionRequestSerializer(serializers.ModelSerializer):
             "id",
             "request_id",
             "agent",
+            "agent_id",
+            "agent_name",
             "wallet",
             "recipient",
             "asset_code",
@@ -66,6 +70,9 @@ class TransactionRequestSerializer(serializers.ModelSerializer):
             "stellar_explorer_url",
             "execution_error",
             "is_eligible_for_cosign",
+            "operator_signatures",
+            "collected_weight",
+            "required_weight",
             "permit",
             "created_at",
             "updated_at",
@@ -83,9 +90,17 @@ class OperatorApprovalSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class OperatorSignTransactionSerializer(serializers.Serializer):
+    operator_address = serializers.CharField(max_length=56)
+    signature = serializers.CharField(required=False, allow_blank=True, default="")
+    weight = serializers.IntegerField(required=False, default=1)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class OperatorRejectionSerializer(serializers.Serializer):
     operator_address = serializers.CharField(max_length=56)
     reason = serializers.CharField(required=True)
+
 
 
 class DashboardStatsSerializer(serializers.Serializer):

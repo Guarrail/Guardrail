@@ -58,33 +58,167 @@ sequenceDiagram
 
 ---
 
-## 2. Soroban Smart Contract (`contracts/guardrail/`)
+## 2. Soroban Smart Contract Architecture (`contracts/guardrail/`)
 
-GuardRail includes an on-chain **Soroban Smart Contract** written in Rust, offering smart treasury governance directly on the Stellar Virtual Machine.
+GuardRail includes an on-chain **Soroban Smart Contract** written in Rust (`no_std`), offering enterprise-grade capital governance directly on the Stellar Virtual Machine (SVM). The contract enforces policy boundaries natively on the blockchain, guaranteeing that treasury funds cannot be diverted even in the event of compromised agent infrastructure.
 
-### Features
-- **On-chain Dual Authorization**: Requires `agent.require_auth()` and `cosigner.require_auth()`.
-- **Replay Protection**: Single-use permit tracking via `DataKey::ExecutedPermit(permit_id)`.
-- **Time Windows**: Deterministic rolling 24-hour and 7-day budget tracking based on ledger timestamps.
-- **Allowlists**: Dynamic recipient and token allowlists managed by operator admin.
-- **Emergency Circuit Breaker**: Immediate pause/unpause capability to halt capital flight.
+```
++-----------------------------------------------------------------------------------+
+|                        SOROBAN SMART CONTRACT BOUNDARY                            |
+|                                                                                   |
+|  +---------------------+   +-----------------------+   +-----------------------+  |
+|  |     AI Agent        |   |   GuardRail CoSigner  |   |    Operator Admin     |  |
+|  |  (Initiator Auth)   |   | (Dual-Sign Approval)  |   | (Policy & Circuit Br) |  |
+|  +----------+----------+   +-----------+-----------+   +-----------+-----------+  |
+|             |                          |                           |              |
+|             +------------+-------------+                           |              |
+|                          |                                         |              |
+|                          v                                         v              |
+|         +----------------------------------+     +-------------------------------+|
+|         |    execute_permitted_payment     |     |   Admin & Policy Controls     ||
+|         |----------------------------------|     |-------------------------------||
+|         | 1. Dual Auth (Agent + CoSigner)  |     | * initialize                  ||
+|         | 2. Replay Guard (BytesN<32>)     |     | * update_policy               ||
+|         | 3. Temporal Expiry Validation    |     | * set_recipient_status        ||
+|         | 4. Recipient & Token Allowlist   |     | * set_token_status            ||
+|         | 5. Per-Tx Stroop Ceiling Check   |     | * set_agent_active            ||
+|         | 6. Rolling 24h & 7d Window Math  |     | * pause / unpause             ||
+|         | 7. SEP-41 Token Transfer         |     | * get_spending_status         ||
+|         +----------------+-----------------+     +---------------+---------------+|
+|                          |                                       |                |
++--------------------------|---------------------------------------|----------------+
+                           v                                       v
+               +-----------------------+               +-----------------------+
+               |  SEP-41 Token Client  |               | Stellar Ledger State  |
+               | (Transfers to Allowlist)              | (Persistent & Instance)
+               +-----------------------+               +-----------------------+
+```
 
-### Testing the Smart Contract
+### 2.1 State Storage & Key Hierarchy
+
+The contract segments memory into **Instance Storage** (core contract configuration and rolling budget tracking) and **Persistent Storage** (scalable allowlists and replay-prevention permits):
+
+| Storage Key | Storage Tier | Type | Purpose |
+| :--- | :--- | :--- | :--- |
+| `DataKey::Admin` | Instance | `Address` | Operator administrator controlling policies and allowlists. |
+| `DataKey::CoSigner` | Instance | `Address` | GuardRail coordinator co-signer public address. |
+| `DataKey::Agent` | Instance | `Address` | Autonomous AI agent account address. |
+| `DataKey::AgentActive` | Instance | `bool` | Flag designating whether the agent can execute payments. |
+| `DataKey::Policy` | Instance | `PolicyConfig` | Active financial limits and approval thresholds. |
+| `DataKey::IsPaused` | Instance | `bool` | Emergency circuit breaker halt switch. |
+| `DataKey::DailySpending` | Instance | `i128` | Cumulative volume (in stroops) spent in active 24h window. |
+| `DataKey::WeeklySpending` | Instance | `i128` | Cumulative volume (in stroops) spent in active 7d window. |
+| `DataKey::LastDailyReset` | Instance | `u64` | UNIX timestamp marking start of active daily window. |
+| `DataKey::LastWeeklyReset` | Instance | `u64` | UNIX timestamp marking start of active weekly window. |
+| `DataKey::AllowedRecipient(Address)` | Persistent | `bool` | Allowlist mapping approved destination addresses. |
+| `DataKey::AllowedToken(Address)` | Persistent | `bool` | Allowlist mapping approved SEP-41 token contracts. |
+| `DataKey::ExecutedPermit(BytesN<32>)`| Persistent | `bool` | Replay protection record tracking consumed permit digests. |
+
+---
+
+### 2.2 Smart Contract Entrypoints
+
+#### `initialize(e: Env, admin: Address, cosigner: Address, agent: Address, policy: PolicyConfig)`
+Initializes the contract with governance roles and default financial policies.
+- **Access Control**: Requires `admin.require_auth()`. One-time invocation guard (`GuardrailError::AlreadyInitialized`).
+- **Events Emitted**: `(symbol_short!("init"), admin)`.
+
+#### `update_policy(e: Env, policy: PolicyConfig)`
+Updates financial limits, daily/weekly ceilings, and human approval threshold.
+- **Access Control**: Requires `admin.require_auth()`.
+- **Validation**: Enforces `0 < max_per_tx <= daily_limit <= weekly_limit`.
+
+#### `set_recipient_status(e: Env, recipient: Address, allowed: bool)`
+Adds or removes a destination account from the approved recipient allowlist.
+- **Access Control**: Requires `admin.require_auth()`.
+- **Events Emitted**: `(symbol_short!("rec_upd"), recipient, allowed)`.
+
+#### `set_token_status(e: Env, token: Address, allowed: bool)`
+Permits or disables a SEP-41 token contract (e.g., Native XLM wrapper, Circle USDC).
+- **Access Control**: Requires `admin.require_auth()`.
+- **Events Emitted**: `(symbol_short!("tok_upd"), token, allowed)`.
+
+#### `set_agent_active(e: Env, active: bool)`
+Enables or disables payment execution rights for the AI agent.
+- **Access Control**: Requires `admin.require_auth()`.
+
+#### `pause(e: Env)` & `unpause(e: Env)`
+Instantaneous circuit breaker. Halts or restores all capital movement.
+- **Access Control**: Requires `admin.require_auth()`.
+
+#### `execute_permitted_payment(e: Env, permit_id: BytesN<32>, recipient: Address, token: Address, amount: i128, expires_at: u64)`
+Primary capital execution gate. Transfers tokens from contract custody to `recipient`.
+- **Dual Authentication**: Requires both `agent.require_auth()` AND `cosigner.require_auth()`.
+- **Replay Protection**: Verifies `!has(DataKey::ExecutedPermit(permit_id))` and records consumption.
+- **Temporal Validity**: Validates `current_timestamp <= expires_at`.
+- **Allowlist Verification**: Asserts `recipient` is allowed and `token` is approved.
+- **Policy Enforcement**: Asserts `amount <= max_amount_per_tx`, updates rolling daily/weekly windows, and verifies `daily_spent <= daily_limit` and `weekly_spent <= weekly_limit`.
+- **Execution**: Invokes `soroban_sdk::token::Client::new(&e, &token).transfer(&contract_address, &recipient, &amount)`.
+- **Events Emitted**: `(symbol_short!("payment"), permit_id, recipient, amount)`.
+
+#### `get_spending_status(e: Env) -> SpendingStatus`
+Read-only inspection endpoint returning real-time rolling daily spent, weekly spent, remaining daily budget, and remaining weekly budget in stroops.
+
+---
+
+### 2.3 Error Code Specification
+
+| Code | Variant | Root Cause |
+| :---: | :--- | :--- |
+| `1` | `AlreadyInitialized` | Attempted re-initialization of already active contract. |
+| `2` | `NotInitialized` | Invocation attempted prior to `initialize()`. |
+| `3` | `ContractPaused` | Circuit breaker active (`pause()` was triggered). |
+| `4` | `AgentInactive` | Agent credentials disabled via `set_agent_active(false)`. |
+| `5` | `PermitAlreadyUsed` | Replay attempt: `permit_id` was already executed. |
+| `6` | `PermitExpired` | Current ledger timestamp exceeds `expires_at`. |
+| `7` | `RecipientNotAllowed`| Destination address is not present in allowlist. |
+| `8` | `TokenNotAllowed` | Asset token contract is not present in allowlist. |
+| `9` | `AmountExceedsMaxPerTx` | Payment exceeds single-transaction ceiling. |
+| `10`| `DailyLimitExceeded` | Payment would exceed rolling 24-hour limit. |
+| `11`| `WeeklyLimitExceeded` | Payment would exceed rolling 7-day limit. |
+| `12`| `InvalidAmount` | Amount is zero or negative. |
+| `13`| `Unauthorized` | Caller failed required cryptographic signature verification. |
+
+---
+
+### 2.4 Compilation, Testing & Deployment
+
+#### 1. Run Contract Unit Tests
+Execute the comprehensive Soroban Rust test suite:
 ```bash
 cargo test --manifest-path contracts/guardrail/Cargo.toml
 ```
-All 11 Rust tests pass, validating:
-1. `test_initialization_and_policy`
-2. `test_successful_payment_execution`
-3. `test_replay_protection_permit_already_used` (panics with `PermitAlreadyUsed`)
-4. `test_expired_permit_rejected` (panics with `PermitExpired`)
-5. `test_unauthorized_recipient_blocked` (panics with `RecipientNotAllowed`)
-6. `test_unauthorized_token_blocked` (panics with `TokenNotAllowed`)
-7. `test_exceeding_max_per_tx_blocked` (panics with `AmountExceedsMaxPerTx`)
-8. `test_daily_spending_budget_enforced` (panics with `DailyLimitExceeded`)
-9. `test_emergency_pause_blocks_execution` (panics with `ContractPaused`)
-10. `test_unpause_restores_execution`
-11. `test_deactivated_agent_blocked` (panics with `AgentInactive`)
+All 11 unit tests validate nominal execution, single-use replay protection, expiry rejection, allowlist enforcement, rolling budget resets, and emergency pause semantics:
+- `test::test_initialization_and_policy`
+- `test::test_successful_payment_execution`
+- `test::test_replay_protection_permit_already_used`
+- `test::test_expired_permit_rejected`
+- `test::test_unauthorized_recipient_blocked`
+- `test::test_unauthorized_token_blocked`
+- `test::test_exceeding_max_per_tx_blocked`
+- `test::test_daily_spending_budget_enforced`
+- `test::test_emergency_pause_blocks_execution`
+- `test::test_unpause_restores_execution`
+- `test::test_deactivated_agent_blocked`
+
+#### 2. Compile Contract to WebAssembly (WASM)
+```bash
+cargo build --target wasm32-unknown-unknown --release --manifest-path contracts/guardrail/Cargo.toml
+```
+
+#### 3. Optimize Contract Binary
+```bash
+soroban contract optimize --wasm target/wasm32-unknown-unknown/release/guardrail.wasm
+```
+
+#### 4. Deploy to Stellar Testnet
+```bash
+soroban contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/guardrail.optimized.wasm \
+  --source-account <OPERATOR_SECRET_KEY> \
+  --network testnet
+```
+
 
 ---
 
