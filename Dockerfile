@@ -4,7 +4,13 @@ FROM python:3.13-slim as base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DB_ENGINE=django.db.backends.postgresql \
+    DB_NAME=guardrail_db \
+    DB_USER=guardrail_user \
+    DB_PASSWORD=guardrail_secure_password \
+    DB_HOST=db \
+    DB_PORT=5432
 
 WORKDIR /app
 
@@ -24,7 +30,7 @@ COPY . /app/
 
 # Create non-root user and set permissions
 RUN useradd -u 1000 -m guardrail && \
-    mkdir -p /app/staticfiles /app/media && \
+    mkdir -p /app/staticfiles /app/media /app/data && \
     chown -R guardrail:guardrail /app
 
 RUN chmod +x /app/docker-entrypoint.sh

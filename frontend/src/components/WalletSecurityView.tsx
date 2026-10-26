@@ -21,6 +21,7 @@ import {
   X,
   Plus,
   ShieldAlert,
+  UserPlus,
 } from 'lucide-react';
 
 interface WalletSecurityViewProps {
@@ -63,6 +64,13 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
   const [escalationReason, setEscalationReason] = useState<string>('');
   const [durationHours, setDurationHours] = useState<number>(4);
   const [isSubmittingEscalation, setIsSubmittingEscalation] = useState<boolean>(false);
+
+  // Operator delegation modal state
+  const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
+  const [delegateAddress, setDelegateAddress] = useState('');
+  const [delegateAlias, setDelegateAlias] = useState('');
+  const [delegateRole, setDelegateRole] = useState('OPERATOR');
+  const [isSubmittingDelegate, setIsSubmittingDelegate] = useState(false);
 
   // Current viewer address (retrieved from localStorage or default)
   const [currentOperatorAddress, setCurrentOperatorAddress] = useState<string>(() => {
@@ -150,6 +158,32 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
     } finally {
       setIsSubmittingEscalation(false);
       setTimeout(() => setToastMessage(''), 4000);
+    }
+  };
+
+  const handleDelegateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!delegateAddress.trim().startsWith('G') || delegateAddress.trim().length !== 56) {
+      alert('Invalid Stellar public key format. Must start with G and be 56 characters.');
+      return;
+    }
+    try {
+      setIsSubmittingDelegate(true);
+      await api.delegatePlatformOperator({
+        address: delegateAddress.trim(),
+        alias: delegateAlias.trim(),
+        role: delegateRole,
+      });
+      setToastMessage(`Operator ${delegateAddress.slice(0, 8)}... delegated as ${delegateRole}!`);
+      setIsDelegateModalOpen(false);
+      setDelegateAddress('');
+      setDelegateAlias('');
+      fetchSharedAccountData();
+    } catch (err: unknown) {
+      setToastMessage(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmittingDelegate(false);
+      setTimeout(() => setToastMessage(''), 3500);
     }
   };
 
@@ -432,8 +466,17 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
         </div>
 
         {/* Operators Roster Table */}
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">Active Operators</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">Active Operators ({operators.length})</span>
+            <button
+              onClick={() => setIsDelegateModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-purple-400" />
+              <span>Delegate Operator</span>
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {operators.map((op) => (
               <div
@@ -611,6 +654,86 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
                   className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
                 >
                   {isSubmittingEscalation ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: DELEGATE NEW OPERATOR --- */}
+      {isDelegateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="relative w-full max-w-md p-6 sm:p-8 bg-[#0d1522]/95 backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_24px_64px_rgba(0,0,0,0.7)] flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2.5">
+                <UserPlus className="w-5 h-5 text-purple-400" />
+                <h3 className="font-space font-bold text-white text-base">Delegate New Operator</h3>
+              </div>
+              <button
+                onClick={() => setIsDelegateModalOpen(false)}
+                className="text-white/50 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDelegateSubmit} className="flex flex-col gap-4 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="text-white/70 font-semibold">Stellar Wallet Address (G...)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
+                  value={delegateAddress}
+                  onChange={(e) => setDelegateAddress(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white font-mono placeholder-white/20 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-white/70 font-semibold">Operator Alias / Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Finance Ops / Auditor"
+                  value={delegateAlias}
+                  onChange={(e) => setDelegateAlias(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white placeholder-white/20 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-white/70 font-semibold">Platform Role</label>
+                <select
+                  value={delegateRole}
+                  onChange={(e) => setDelegateRole(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-[#141b27] border border-white/[0.12] text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="OPERATOR">OPERATOR (View requests & approve within threshold)</option>
+                  <option value="POLICY_ADMIN">POLICY_ADMIN (Manage financial spending policies)</option>
+                  <option value="AUDITOR">AUDITOR (Read-only compliance & log verification)</option>
+                  <option value="ADMIN">ADMIN (Full management & escalation authority)</option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-xl text-white/50 text-[11px] leading-relaxed">
+                Delegated operators can log in using their own connected Stellar wallet to view requests and approve them. The primary account remains the debit/credit anchor.
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => setIsDelegateModalOpen(false)}
+                  className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDelegate}
+                  className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingDelegate ? 'Delegating...' : 'Delegate Operator'}
                 </button>
               </div>
             </form>

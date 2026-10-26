@@ -50,6 +50,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "apps.core.middleware.DisableCSRFForAPIMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -78,6 +79,10 @@ WSGI_APPLICATION = "guardrail.wsgi.application"
 import sys
 
 # Database Configuration: In-memory SQLite for test suites, PostgreSQL for Docker / Production
+import urllib.parse
+from pathlib import Path
+
+# Database Configuration: In-memory SQLite for test suites, PostgreSQL for Docker / Production
 if "pytest" in sys.modules or "test" in sys.argv:
     DATABASES = {
         "default": {
@@ -85,22 +90,36 @@ if "pytest" in sys.modules or "test" in sys.argv:
             "NAME": ":memory:",
         }
     }
-elif os.getenv("DB_ENGINE") == "django.db.backends.postgresql" and os.getenv("DB_NAME"):
+elif os.getenv("DATABASE_URL"):
+    url = urllib.parse.urlparse(os.getenv("DATABASE_URL"))
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "guardrail_db"),
-            "USER": os.getenv("DB_USER", "guardrail_user"),
-            "PASSWORD": os.getenv("DB_PASSWORD", "guardrail_secure_password"),
+            "NAME": url.path[1:],
+            "USER": url.username,
+            "PASSWORD": url.password,
+            "HOST": url.hostname,
+            "PORT": str(url.port or 5432),
+        }
+    }
+elif os.getenv("DB_HOST") or os.getenv("DB_ENGINE") in ("django.db.backends.postgresql", "postgresql", "postgres") or os.getenv("POSTGRES_DB"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME") or os.getenv("POSTGRES_DB", "guardrail_db"),
+            "USER": os.getenv("DB_USER") or os.getenv("POSTGRES_USER", "guardrail_user"),
+            "PASSWORD": os.getenv("DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD", "guardrail_secure_password"),
             "HOST": os.getenv("DB_HOST", "db"),
             "PORT": os.getenv("DB_PORT", "5432"),
         }
     }
 else:
+    sqlite_path = Path(os.getenv("SQLITE_PATH", BASE_DIR / "data" / "db.sqlite3"))
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": sqlite_path,
         }
     }
 
@@ -118,21 +137,45 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-# Static files
+# Static and media files
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# CORS configuration
+from corsheaders.defaults import default_headers
+
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-agent-key",
+]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://0.0.0.0:3000",
+    "http://0.0.0.0:8000",
+    "http://localhost",
+    "http://127.0.0.1",
+    "https://localhost:3000",
+    "https://127.0.0.1:3000",
+]
 
 # Django REST Framework Settings
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -171,5 +214,6 @@ SPECTACULAR_SETTINGS = {
 STELLAR_NETWORK = os.getenv("STELLAR_NETWORK", "TESTNET")
 STELLAR_HORIZON_URL = os.getenv("STELLAR_HORIZON_URL", "https://horizon-testnet.stellar.org")
 STELLAR_NETWORK_PASSPHRASE = os.getenv("STELLAR_NETWORK_PASSPHRASE", "Test SDF Network ; September 2015")
-GUARDRAIL_COSIGNER_PUBLIC_KEY = os.getenv("GUARDRAIL_COSIGNER_PUBLIC_KEY", "GBGUARDRAILCOSIGNERTESTNETPUBKEYDEMO1234567890ABCDEFGH")
-GUARDRAIL_COSIGNER_SECRET_KEY = os.getenv("GUARDRAIL_COSIGNER_SECRET_KEY", "SBGUARDRAILCOSIGNERTESTNETSECRETKEYDEMO1234567890ABCDEF")
+GUARDRAIL_COSIGNER_PUBLIC_KEY = os.getenv("GUARDRAIL_COSIGNER_PUBLIC_KEY", "GAX4CIDATJTAG6GUU3UCD7IBFCTMI6EWKDWL5C5AHSS4PR3KHPLULZFT")
+GUARDRAIL_COSIGNER_SECRET_KEY = os.getenv("GUARDRAIL_COSIGNER_SECRET_KEY", "SCAPAHDZCHL7BWYT2MW47CZW7IYPGL7XXNUXEVPBXSPAFFJI7VDHNTGZ")
+

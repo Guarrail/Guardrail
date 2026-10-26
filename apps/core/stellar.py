@@ -1,8 +1,9 @@
 import logging
+import requests
 from decimal import Decimal
 from django.conf import settings
-from stellar_sdk import Keypair, Network, TransactionBuilder, Account, Asset
-from stellar_sdk.exceptions import BadRequestError, BaseHorizonError
+from stellar_sdk import Keypair, Network, TransactionBuilder, Account, Asset, Server
+from stellar_sdk.exceptions import BadRequestError, BaseHorizonError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -35,27 +36,376 @@ def generate_new_stellar_keypair() -> tuple[str, str]:
     return kp.public_key, kp.secret
 
 
+def get_network_passphrase() -> str:
+    """Returns the Stellar network passphrase (defaults to Testnet)."""
+    return getattr(settings, "STELLAR_NETWORK_PASSPHRASE", Network.TESTNET_NETWORK_PASSPHRASE)
+
+
+def get_horizon_url() -> str:
+    """Returns the configured Stellar Horizon endpoint."""
+    return getattr(settings, "STELLAR_HORIZON_URL", "https://horizon-testnet.stellar.org")
+
+
+def get_horizon_server() -> Server:
+    """Returns an active Stellar Horizon SDK Server instance."""
+    return Server(horizon_url=get_horizon_url())
+
+
 def get_cosigner_keypair() -> Keypair:
     """
     Retrieves the backend GuardRail co-signer keypair configured in settings.
-    Generates a deterministic or fallback keypair if not configured.
     """
     secret = getattr(settings, "GUARDRAIL_COSIGNER_SECRET_KEY", None)
     if secret and is_valid_stellar_secret(secret):
         return Keypair.from_secret(secret)
 
-    # Deterministic testnet co-signer fallback for dev / testing
-    fallback_seed = "SBGUARDRAILCOSIGNERTESTNETSECRETKEYDEMO1234567890ABCDEF"
+    # Deterministic fallback keypair funded on Stellar Testnet
+    fallback_seed = "SCAPAHDZCHL7BWYT2MW47CZW7IYPGL7XXNUXEVPBXSPAFFJI7VDHNTGZ"
+    return Keypair.from_secret(fallback_seed)
+
+
+def fund_account_via_friendbot(address: str) -> bool:
+    """
+    Funds a Stellar address on the Testnet using Friendbot.
+    Makes the account immediately active and visible on Stellar Testnet Explorer.
+    """
+    if not is_valid_stellar_address(address):
+        logger.error("Invalid Stellar address for friendbot: %s", address)
+        return False
+
+    url = f"https://friendbot.stellar.org/?addr={address}"
     try:
-        return Keypair.from_secret(fallback_seed)
-    except Exception:
-        # Fallback to fresh random keypair if dummy string is not valid Base32 checksum
-        return Keypair.random()
+        resp = requests.get(url, timeout=30)
+        if resp.status_code == 200:
+            logger.info("Friendbot successfully funded account: %s", address)
+            return True
+        elif resp.status_code == 400 and "createAccountAlreadyExist" in resp.text:
+            logger.info("Account %s already funded on Stellar Testnet.", address)
+            return True
+        else:
+            logger.warning("Friendbot returned status %s: %s", resp.status_code, resp.text)
+            return False
+    except Exception as e:
+        logger.exception("Friendbot request failed for %s: %s", address, str(e))
+        return False
 
 
-def get_network_passphrase() -> str:
-    """Returns the Stellar network passphrase (defaults to Testnet)."""
-    return getattr(settings, "STELLAR_NETWORK_PASSPHRASE", Network.TESTNET_NETWORK_PASSPHRASE)
+def ensure_account_funded_on_testnet(address: str) -> bool:
+    """
+    Verifies if an account exists on Horizon Testnet. If not found, calls Friendbot to fund it.
+    """
+    server = get_horizon_server()
+    try:
+        server.accounts().account_id(address).call()
+        return True
+    except NotFoundError:
+        logger.info("Account %s not found on Horizon. Triggering Friendbot auto-funding...", address)
+        return fund_account_via_friendbot(address)
+    except Exception as e:
+        logger.warning("Error checking account %s on Horizon: %s", address, str(e))
+        return fund_account_via_friendbot(address)
+
+
+def get_account_balances_from_horizon(address: str) -> list[dict]:
+    """
+    Queries Horizon for live balances associated with the given Stellar address.
+    """
+    if not is_valid_stellar_address(address):
+        return []
+    server = get_horizon_server()
+    try:
+        acc = server.accounts().account_id(address).call()
+        return acc.get("balances", [])
+    except NotFoundError:
+        return []
+    except Exception as e:
+        logger.error("Failed to fetch balances for %s: %s", address, str(e))
+        return []
+
+
+def write_policy_to_pda(
+    pda_secret: str,
+    policy_dict: dict,
+    admin_address: str,
+    autonomy_mode: str = "AUTONOMOUS",
+) -> str:
+    """
+    Module 5 — On-chain Policy Storage:
+    Writes financial policy rules (policy ID, max amount per tx, daily limit, weekly limit,
+    approval threshold, owner/admin address, autonomy mode) directly into the PDA account
+    on Stellar Testnet using native ManageData operations.
+
+    Returns the confirmed Stellar transaction hash visible on Stellar Expert.
+    """
+    kp = Keypair.from_secret(pda_secret)
+    pda_address = kp.public_key
+
+    # Ensure PDA exists and is funded on testnet
+    ensure_account_funded_on_testnet(pda_address)
+
+    server = get_horizon_server()
+    account = server.load_account(pda_address)
+
+    policy_id = str(policy_dict.get("id", ""))[:64]
+    policy_name = str(policy_dict.get("name", "Policy"))[:64]
+    max_amount = str(policy_dict.get("max_amount_per_tx", "0.00"))[:64]
+    daily_limit = str(policy_dict.get("daily_spending_limit", "0.00"))[:64]
+    weekly_limit = str(policy_dict.get("weekly_spending_limit", "0.00"))[:64]
+    approval_threshold = str(policy_dict.get("human_approval_threshold", "0.00"))[:64]
+    owner_str = str(admin_address)[:64]
+    autonomy_str = str(autonomy_mode)[:64]
+
+    tb = (
+        TransactionBuilder(
+            source_account=account,
+            network_passphrase=get_network_passphrase(),
+            base_fee=100,
+        )
+        .append_manage_data_op(data_name="gr_policy_id", data_value=policy_id)
+        .append_manage_data_op(data_name="gr_name", data_value=policy_name)
+        .append_manage_data_op(data_name="gr_max_tx", data_value=max_amount)
+        .append_manage_data_op(data_name="gr_daily_lim", data_value=daily_limit)
+        .append_manage_data_op(data_name="gr_weekly_lim", data_value=weekly_limit)
+        .append_manage_data_op(data_name="gr_appr_thr", data_value=approval_threshold)
+        .append_manage_data_op(data_name="gr_admin_addr", data_value=owner_str)
+        .append_manage_data_op(data_name="gr_autonomy", data_value=autonomy_str)
+        .set_timeout(300)
+    )
+
+    tx = tb.build()
+    tx.sign(kp)
+
+    resp = server.submit_transaction(tx)
+    tx_hash = resp.get("hash") or tx.hash_hex()
+    logger.info("Policy recorded on-chain for PDA %s. Tx Hash: %s", pda_address, tx_hash)
+    return tx_hash
+
+
+def submit_live_stellar_payment(
+    source_secret: str,
+    destination_address: str,
+    amount: Decimal,
+    asset_code: str = "XLM",
+    asset_issuer: str | None = None,
+    memo_text: str | None = None,
+) -> tuple[str, str]:
+    """
+    Submits a live Stellar payment from the source keypair to the destination on Stellar Testnet.
+    Automatically ensures destination is funded/active so payment does not fail.
+    Returns (tx_hash, xdr).
+    """
+    source_kp = Keypair.from_secret(source_secret)
+    source_address = source_kp.public_key
+
+    # Ensure both source and destination exist on testnet
+    ensure_account_funded_on_testnet(source_address)
+    ensure_account_funded_on_testnet(destination_address)
+
+    server = get_horizon_server()
+    account = server.load_account(source_address)
+
+    if asset_code == "XLM" or not asset_issuer:
+        stellar_asset = Asset.native()
+    else:
+        stellar_asset = Asset(code=asset_code, issuer=asset_issuer)
+
+    tb = (
+        TransactionBuilder(
+            source_account=account,
+            network_passphrase=get_network_passphrase(),
+            base_fee=100,
+        )
+        .append_payment_op(
+            destination=destination_address,
+            asset=stellar_asset,
+            amount=f"{amount:.7f}",
+        )
+        .set_timeout(300)
+    )
+
+    if memo_text:
+        tb.add_text_memo(memo_text[:28])
+
+    tx = tb.build()
+    tx.sign(source_kp)
+
+    resp = server.submit_transaction(tx)
+    tx_hash = resp.get("hash") or tx.hash_hex()
+    xdr = tx.to_xdr()
+    logger.info("Payment confirmed on Stellar Testnet! Source: %s, Dest: %s, Amount: %s, Hash: %s",
+                source_address, destination_address, amount, tx_hash)
+    return tx_hash, xdr
+
+
+TESTNET_USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+TESTNET_EURC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+
+
+def submit_live_stellar_swap(
+    source_secret: str,
+    send_asset_code: str = "XLM",
+    send_issuer: str | None = None,
+    dest_asset_code: str = "USDC",
+    dest_issuer: str | None = None,
+    amount: Decimal = Decimal("10.0"),
+    min_dest_amount: Decimal | None = None,
+    destination_address: str | None = None,
+) -> tuple[str, str, Decimal]:
+    """
+    Submits a live Stellar DEX / AMM token swap from the source account on Stellar Testnet.
+    Uses PathPaymentStrictSend on Horizon when liquidity path is active,
+    or places a native DEX order if direct pool is awaiting liquidity.
+    Returns (tx_hash, xdr, estimated_received_amount).
+    """
+    source_kp = Keypair.from_secret(source_secret)
+    source_address = source_kp.public_key
+    destination = destination_address or source_address
+
+    ensure_account_funded_on_testnet(source_address)
+    if destination != source_address:
+        ensure_account_funded_on_testnet(destination)
+
+    server = get_horizon_server()
+    account = server.load_account(source_address)
+
+    # 1. Determine Send Asset
+    if send_asset_code == "XLM" or not send_issuer:
+        send_asset = Asset.native()
+    else:
+        send_asset = Asset(code=send_asset_code, issuer=send_issuer)
+
+    # 2. Determine Destination Asset (default testnet issuer for USDC/EURC if omitted)
+    if dest_asset_code == "XLM":
+        dest_asset = Asset.native()
+    else:
+        actual_dest_issuer = dest_issuer
+        if not actual_dest_issuer:
+            if dest_asset_code == "USDC":
+                actual_dest_issuer = TESTNET_USDC_ISSUER
+            elif dest_asset_code == "EURC":
+                actual_dest_issuer = TESTNET_EURC_ISSUER
+            else:
+                actual_dest_issuer = TESTNET_USDC_ISSUER
+        dest_asset = Asset(code=dest_asset_code, issuer=actual_dest_issuer)
+
+    tb = TransactionBuilder(
+        source_account=account,
+        network_passphrase=get_network_passphrase(),
+        base_fee=100,
+    )
+
+    # 3. If destination asset is not native, ensure trustline exists on source account so it can receive/hold tokens
+    if not dest_asset.is_native():
+        has_trustline = False
+        try:
+            acc_details = server.accounts().account_id(source_address).call()
+            for b in acc_details.get("balances", []):
+                if b.get("asset_code") == dest_asset.code and b.get("asset_issuer") == dest_asset.issuer:
+                    has_trustline = True
+                    break
+        except Exception as e:
+            logger.warning("Could not check trustline: %s", str(e))
+
+        if not has_trustline:
+            tb.append_change_trust_op(asset=dest_asset, limit="1000000.0000000")
+
+    # 4. Query path on Horizon DEX
+    est_dest_amount = Decimal("0.0000000")
+    path_records = []
+    try:
+        paths_res = server.strict_send_paths(
+            source_asset=send_asset,
+            source_amount=f"{amount:.7f}",
+            destination=[dest_asset],
+        ).call()
+        path_records = paths_res.get("_embedded", {}).get("records", [])
+    except Exception as e:
+        logger.info("Strict send path lookup error: %s", str(e))
+
+    if path_records:
+        best_path = path_records[0]
+        est_dest_amount = Decimal(best_path.get("destination_amount", "0"))
+        dest_min = min_dest_amount or (est_dest_amount * Decimal("0.98"))
+        intermediary_path = []
+        for p in best_path.get("path", []):
+            if p.get("asset_type") != "native":
+                intermediary_path.append(Asset(p["asset_code"], p["asset_issuer"]))
+            else:
+                intermediary_path.append(Asset.native())
+
+        tb.append_path_payment_strict_send_op(
+            destination=destination,
+            send_asset=send_asset,
+            send_amount=f"{amount:.7f}",
+            dest_asset=dest_asset,
+            dest_min=f"{dest_min:.7f}",
+            path=intermediary_path,
+        )
+    else:
+        # Fallback DEX market order / offer
+        est_dest_amount = min_dest_amount or (amount * Decimal("0.98"))
+        tb.append_manage_buy_offer_op(
+            selling=send_asset,
+            buying=dest_asset,
+            amount=f"{est_dest_amount:.7f}",
+            price="1.0",
+        )
+
+    tb.add_text_memo(f"SWAP {send_asset_code[:4]}->{dest_asset_code[:4]}")
+    tb.set_timeout(300)
+
+    tx = tb.build()
+    tx.sign(source_kp)
+
+    resp = server.submit_transaction(tx)
+    tx_hash = resp.get("hash") or tx.hash_hex()
+    xdr = tx.to_xdr()
+
+    logger.info("DEX Swap confirmed on Stellar Testnet! Source: %s, Swap: %s %s -> %s %s, Tx: %s",
+                source_address, amount, send_asset_code, est_dest_amount, dest_asset_code, tx_hash)
+    return tx_hash, xdr, est_dest_amount
+
+
+def refund_pda_funds_to_owner(
+    pda_secret: str,
+    owner_address: str,
+    amount: Decimal | None = None,
+) -> tuple[str, str, Decimal]:
+    """
+    Sends funds from the PDA back to the owner/signup wallet address.
+    Calculates available balance above Stellar minimum reserve (~1.5 XLM).
+    Returns (tx_hash, xdr, transferred_amount).
+    """
+    kp = Keypair.from_secret(pda_secret)
+    pda_address = kp.public_key
+
+    balances = get_account_balances_from_horizon(pda_address)
+    native_balance = Decimal("0.0000000")
+    for b in balances:
+        if b.get("asset_type") == "native":
+            native_balance = Decimal(b.get("balance", "0"))
+            break
+
+    # Reserve minimum for Stellar base reserve (1 XLM + 0.5 for subentries/fees)
+    reserve = Decimal("2.0000000")
+    max_transferable = max(Decimal("0.0000000"), native_balance - reserve)
+
+    if amount is not None:
+        transfer_amount = min(amount, max_transferable)
+    else:
+        transfer_amount = max_transferable
+
+    if transfer_amount <= Decimal("0.00001"):
+        raise ValueError(f"Insufficient PDA funds to refund. Available balance: {native_balance} XLM (Reserve: {reserve} XLM)")
+
+    tx_hash, xdr = submit_live_stellar_payment(
+        source_secret=pda_secret,
+        destination_address=owner_address,
+        amount=transfer_amount,
+        asset_code="XLM",
+        memo_text="PDA Refund to Owner",
+    )
+    return tx_hash, xdr, transfer_amount
 
 
 def build_payment_transaction(
@@ -87,7 +437,7 @@ def build_payment_transaction(
         .append_payment_op(
             destination=recipient_address,
             asset=stellar_asset,
-            amount=str(amount),
+            amount=f"{amount:.7f}",
         )
         .set_timeout(300)
     )

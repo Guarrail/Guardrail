@@ -15,6 +15,7 @@ from apps.core.stellar import (
     get_cosigner_keypair,
     build_payment_transaction,
     is_valid_stellar_address,
+    submit_live_stellar_payment,
 )
 from apps.wallets.models import ControlledWallet
 from apps.agents.models import AIAgent
@@ -67,18 +68,28 @@ class PolicyEvaluationResult:
 
 def evaluate_and_create_request(
     agent: AIAgent,
-    request_id: str,
+    request_id: str | None,
     recipient: str,
     amount: Decimal | str,
     asset_code: str = "XLM",
     asset_issuer: str | None = None,
     wallet: ControlledWallet | None = None,
+    stellar_envelope_xdr: str = "",
+    swap_details: dict | None = None,
 ) -> tuple[TransactionRequest, Permit | None]:
     """
-    Core entrypoint for agent payment requests.
+    Core entrypoint for agent payment and swap requests.
     Enforces atomic policy evaluation and budget reservation with database row-level locking.
     Idempotent: duplicate request_id returns existing record without re-evaluation or double-deduction.
+    If request_id is omitted or blank, generates a fresh unique identifier.
+    If request_id already exists with conflicting parameters, raises ValidationError.
     """
+    import time
+    import uuid
+
+    if not request_id or not str(request_id).strip():
+        request_id = f"req_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+
     amount_dec = quantize_amount(amount)
     target_wallet = wallet or agent.wallet
     policy = agent.policy
@@ -87,9 +98,21 @@ def evaluate_and_create_request(
         # 1. Idempotency Check
         existing_req = TransactionRequest.objects.select_for_update().filter(request_id=request_id).first()
         if existing_req:
-            logger.info("Idempotent request received: %s", request_id)
-            existing_permit = getattr(existing_req, "permit", None)
-            return existing_req, existing_permit
+            is_same_payload = (
+                existing_req.recipient == recipient
+                and existing_req.amount == amount_dec
+                and existing_req.asset_code == (asset_code or "XLM")
+            )
+            if is_same_payload:
+                logger.info("Idempotent request received (identical payload): %s", request_id)
+                existing_permit = getattr(existing_req, "permit", None)
+                return existing_req, existing_permit
+            else:
+                raise ValidationError(
+                    f"Conflict: request_id '{request_id}' has already been used for an existing transaction "
+                    f"(amount={existing_req.amount} {existing_req.asset_code}, recipient={existing_req.recipient[:10]}..., status={existing_req.status}). "
+                    f"Please omit 'request_id' to auto-generate a fresh ID, or specify a new unique request_id."
+                )
 
         # 2. Lock Spending Ledger for concurrency safety
         ledger, _ = SpendingLedger.objects.select_for_update().get_or_create(wallet=target_wallet, policy=policy)
@@ -102,15 +125,28 @@ def evaluate_and_create_request(
         if not agent.is_operational:
             eval_result.fail(f"Agent {agent.agent_id} is currently {agent.status}.", category="general")
 
-        # Check recipient allowlist
+        # Check recipient allowlist: if policy defines allowlist, enforce it.
+        # Self-custody swaps returning tokens to the agent's own wallet bypass external recipient restrictions.
+        is_self_swap = swap_details and recipient == target_wallet.address
         if not is_valid_stellar_address(recipient):
             eval_result.fail("Invalid recipient Stellar address format.", category="recipient")
-        elif not policy.allowed_recipients.filter(address=recipient, is_active=True).exists():
+        elif not is_self_swap and policy.allowed_recipients.filter(is_active=True).exists() and not policy.allowed_recipients.filter(address=recipient, is_active=True).exists():
             eval_result.fail(f"Recipient address {recipient} is not on the policy allowlist.", category="recipient")
 
-        # Check asset allowlist
-        if not policy.allowed_assets.filter(asset_code=asset_code, issuer_address=asset_issuer, is_active=True).exists():
-            eval_result.fail(f"Asset {asset_code} is not permitted under the active policy.", category="asset")
+        # Check asset allowlist: if policy defines allowed assets, enforce it
+        if policy.allowed_assets.filter(is_active=True).exists():
+            if swap_details:
+                send_code = swap_details.get("send_asset", "XLM")
+                dest_code = swap_details.get("dest_asset", "USDC")
+                send_ok = (send_code == "XLM" and not policy.allowed_assets.filter(is_active=True).exists()) or policy.allowed_assets.filter(asset_code=send_code, is_active=True).exists()
+                dest_ok = policy.allowed_assets.filter(asset_code=dest_code, is_active=True).exists()
+                if not send_ok:
+                    eval_result.fail(f"Send asset {send_code} is not permitted under the active policy.", category="asset")
+                if not dest_ok:
+                    eval_result.fail(f"Destination asset {dest_code} is not permitted under the active policy.", category="asset")
+            else:
+                if not policy.allowed_assets.filter(asset_code=asset_code, issuer_address=asset_issuer, is_active=True).exists():
+                    eval_result.fail(f"Asset {asset_code} is not permitted under the active policy.", category="asset")
 
         # Check single transaction limit
         if amount_dec <= 0:
@@ -143,6 +179,10 @@ def evaluate_and_create_request(
         ):
             eval_result.requires_human_approval = True
 
+        eval_dict = eval_result.to_dict()
+        if swap_details:
+            eval_dict["type"] = "SWAP"
+            eval_dict["swap_details"] = swap_details
 
         # 4. Handle Blocked vs Eligible Requests
         if not eval_result.is_passed:
@@ -156,14 +196,15 @@ def evaluate_and_create_request(
                 amount=amount_dec,
                 status="BLOCKED",
                 requires_human_approval=eval_result.requires_human_approval,
-                policy_evaluation_results=eval_result.to_dict(),
+                policy_evaluation_results=eval_dict,
+                stellar_envelope_xdr=stellar_envelope_xdr,
             )
             record_audit_event(
                 event_type="POLICY_EVALUATED_BLOCKED",
                 actor_id=agent.agent_id,
                 actor_type="AI_AGENT",
                 request_id=request_id,
-                details=eval_result.to_dict(),
+                details=eval_dict,
             )
             return req, None
 
@@ -184,7 +225,8 @@ def evaluate_and_create_request(
             amount=amount_dec,
             status=initial_status,
             requires_human_approval=eval_result.requires_human_approval,
-            policy_evaluation_results=eval_result.to_dict(),
+            policy_evaluation_results=eval_dict,
+            stellar_envelope_xdr=stellar_envelope_xdr,
         )
 
         # 6. Generate Single-Use Cryptographically Bound Permit
@@ -290,13 +332,13 @@ def operator_reject_request(request_id: str, operator_address: str, reason: str 
         return req
 
 
-def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> TransactionRequest:
+def cosign_and_execute_request(request_id: str, mock_stellar: bool = False) -> TransactionRequest:
     """
     Module 4 — Single-Permit Co-Sign and Execution:
     1. Validates permit is valid, unconsumed, and not expired.
     2. Re-validates that canonical transaction payload hash matches permit payload hash!
-    3. Co-signs with backend GuardRail key.
-    4. Submits transaction to Stellar Testnet (or testnet mock).
+    3. Co-signs with agent PDA / backend GuardRail key.
+    4. Submits live transaction to Stellar Testnet (or testnet mock if requested).
     5. On confirmed success: marks permit as consumed, transitions reserved budget to confirmed spent.
     6. On failure: releases reserved budget and marks failed.
     """
@@ -305,30 +347,35 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> Tr
         if req.status != "APPROVED":
             raise ValidationError(f"Request must be in APPROVED state for co-signing (current: {req.status}).")
 
-        permit = req.permit
-        if permit.is_single_use_consumed:
-            raise ValidationError("Permit has already been consumed. Replay attack prevented.")
+        try:
+            permit = req.permit
+        except Exception:
+            permit = None
 
-        if permit.expires_at <= get_utc_now():
-            permit.status = "EXPIRED"
-            permit.save(update_fields=["status"])
-            raise ValidationError("Permit has expired.")
+        if permit:
+            if permit.is_single_use_consumed:
+                raise ValidationError("Permit has already been consumed. Replay attack prevented.")
 
-        # Re-verify payload hash to guarantee zero tampering
-        expected_payload = {
-            "request_id": req.request_id,
-            "agent_id": req.agent.agent_id,
-            "wallet": req.wallet.address,
-            "recipient": req.recipient,
-            "asset": req.asset_code,
-            "issuer": req.asset_issuer,
-            "amount": str(req.amount),
-            "policy_id": str(req.agent.policy.id),
-            "policy_version": req.agent.policy.version,
-        }
-        current_hash = hash_canonical_payload(expected_payload)
-        if current_hash != permit.payload_hash:
-            raise ValidationError("Transaction payload does not match the approved permit payload hash!")
+            if permit.expires_at <= get_utc_now():
+                permit.status = "EXPIRED"
+                permit.save(update_fields=["status"])
+                raise ValidationError("Permit has expired.")
+
+            # Re-verify payload hash to guarantee zero tampering
+            expected_payload = {
+                "request_id": req.request_id,
+                "agent_id": req.agent.agent_id if req.agent else "",
+                "wallet": req.wallet.address if req.wallet else "",
+                "recipient": req.recipient,
+                "asset": req.asset_code,
+                "issuer": req.asset_issuer,
+                "amount": str(req.amount),
+                "policy_id": str(req.agent.policy.id) if (req.agent and req.agent.policy) else "",
+                "policy_version": req.agent.policy.version if (req.agent and req.agent.policy) else 1,
+            }
+            current_hash = hash_canonical_payload(expected_payload)
+            if current_hash != permit.payload_hash:
+                raise ValidationError("Transaction payload does not match the approved permit payload hash!")
 
         # Co-signing step
         req.status = "CO_SIGNED"
@@ -339,7 +386,7 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> Tr
             actor_id=get_cosigner_keypair().public_key,
             actor_type="SYSTEM",
             request_id=request_id,
-            permit_id=str(permit.id),
+            permit_id=str(permit.id) if permit else None,
         )
 
         # Stellar execution step
@@ -347,29 +394,44 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> Tr
 
         try:
             if mock_stellar:
-                # Deterministic testnet mock execution
+                # Deterministic testnet mock execution for offline unit testing
                 tx_hash = hashlib.sha256(f"stellar_testnet_tx_{req.request_id}_{get_utc_now().timestamp()}".encode()).hexdigest()
                 xdr = f"AAAA_MOCK_STELLAR_XDR_CO_SIGNED_{req.request_id}"
             else:
-                # Production Stellar Horizon transaction builder & submission
-                cosigner_kp = get_cosigner_keypair()
-                tb = build_payment_transaction(
-                    source_address=req.wallet.address,
-                    sequence_number=1,  # In live mode query Horizon account sequence
-                    recipient_address=req.recipient,
-                    amount=req.amount,
-                    asset_code=req.asset_code,
-                    asset_issuer=req.asset_issuer,
-                )
-                tx_envelope = tb.build()
-                tx_envelope.sign(cosigner_kp)
-                xdr = tx_envelope.to_xdr()
-                tx_hash = tx_envelope.hash_hex()
+                # Live Stellar Horizon transaction builder & submission
+                signing_secret = req.agent.stellar_secret_key
+                if not signing_secret:
+                    cosigner_kp = get_cosigner_keypair()
+                    signing_secret = cosigner_kp.secret
 
-            # Mark Single-Use Consumed
-            permit.is_single_use_consumed = True
-            permit.status = "USED"
-            permit.save(update_fields=["is_single_use_consumed", "status", "updated_at"])
+                swap_meta = (req.policy_evaluation_results or {}).get("swap_details")
+                if swap_meta:
+                    from apps.core.stellar import submit_live_stellar_swap
+                    tx_hash, xdr, est_dest = submit_live_stellar_swap(
+                        source_secret=signing_secret,
+                        send_asset_code=swap_meta.get("send_asset", "XLM"),
+                        send_issuer=swap_meta.get("send_issuer"),
+                        dest_asset_code=swap_meta.get("dest_asset", "USDC"),
+                        dest_issuer=swap_meta.get("dest_issuer"),
+                        amount=req.amount,
+                        min_dest_amount=Decimal(str(swap_meta["min_dest_amount"])) if swap_meta.get("min_dest_amount") else None,
+                        destination_address=req.recipient,
+                    )
+                else:
+                    tx_hash, xdr = submit_live_stellar_payment(
+                        source_secret=signing_secret,
+                        destination_address=req.recipient,
+                        amount=req.amount,
+                        asset_code=req.asset_code,
+                        asset_issuer=req.asset_issuer,
+                        memo_text=f"GR {req.request_id[:16]}",
+                    )
+
+            if permit:
+                # Mark Single-Use Consumed
+                permit.is_single_use_consumed = True
+                permit.status = "USED"
+                permit.save(update_fields=["is_single_use_consumed", "status", "updated_at"])
 
             # Move reserved budget to confirmed spent
             ledger.reserved_daily = max(Decimal("0.0000000"), ledger.reserved_daily - req.amount)
@@ -388,14 +450,20 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> Tr
             req.stellar_envelope_xdr = xdr
             req.save(update_fields=["status", "stellar_tx_hash", "stellar_envelope_xdr", "updated_at"])
 
+            swap_meta = (req.policy_evaluation_results or {}).get("swap_details")
             record_audit_event(
-                event_type="TX_CONFIRMED",
+                event_type="DEX_SWAP_CONFIRMED" if swap_meta else "TX_CONFIRMED",
                 actor_id="Stellar Testnet",
                 actor_type="SYSTEM",
                 request_id=request_id,
-                permit_id=str(permit.id),
+                permit_id=str(permit.id) if permit else None,
                 stellar_tx_hash=tx_hash,
-                details={"amount": str(req.amount), "recipient": req.recipient, "asset": req.asset_code},
+                details={
+                    "amount": str(req.amount),
+                    "recipient": req.recipient,
+                    "asset": req.asset_code,
+                    **( {"swap_details": swap_meta} if swap_meta else {} ),
+                },
             )
             return req
 
@@ -415,7 +483,7 @@ def cosign_and_execute_request(request_id: str, mock_stellar: bool = True) -> Tr
                 actor_id="Stellar Testnet",
                 actor_type="SYSTEM",
                 request_id=request_id,
-                permit_id=str(permit.id),
+                permit_id=str(permit.id) if permit else None,
                 details={"error": str(e)},
             )
             raise

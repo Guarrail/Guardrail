@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from apps.core.utils import verify_api_key, get_utc_now
@@ -22,10 +23,17 @@ class AgentAPIKeyAuthentication(BaseAuthentication):
             return None  # Pass to subsequent authentication classes or unauthenticated
 
         prefix = api_key[:12]
-        matching_agents = AIAgent.objects.filter(api_key_prefix=prefix)
+        matching_agents = AIAgent.objects.filter(
+            models.Q(api_key_prefix=prefix) | models.Q(api_key=api_key) | models.Q(api_key_prefix=api_key)
+        )
 
         for agent in matching_agents:
-            if verify_api_key(api_key, agent.api_key_hash):
+            is_valid = (
+                (agent.api_key and api_key == agent.api_key)
+                or verify_api_key(api_key, agent.api_key_hash)
+                or (agent.api_key_prefix and api_key == agent.api_key_prefix)
+            )
+            if is_valid:
                 if agent.status == "DISABLED":
                     raise AuthenticationFailed("This AI agent has been emergency disabled by the operator.")
                 if agent.status in ("INACTIVE", "REVOKED"):

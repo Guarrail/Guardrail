@@ -31,6 +31,9 @@ class AIAgent(BaseModel):
     policy = models.ForeignKey(Policy, on_delete=models.PROTECT, related_name="agents")
 
     stellar_public_key = models.CharField(max_length=56, blank=True, default="", help_text="Agent PDA / Stellar public key")
+    stellar_secret_key = models.CharField(max_length=64, blank=True, default="", help_text="Agent PDA private signing key")
+    pda_tx_hash = models.CharField(max_length=64, blank=True, default="", help_text="On-chain Stellar transaction hash writing policy to PDA")
+    pda_funded = models.BooleanField(default=False, help_text="Whether PDA has been funded on Stellar Testnet")
     signer_weight = models.PositiveSmallIntegerField(default=1, help_text="Multisig signer weight for this agent")
     autonomy_mode = models.CharField(
         max_length=32,
@@ -38,7 +41,9 @@ class AIAgent(BaseModel):
         default="AUTONOMOUS",
         help_text="Autonomous execution within policy vs mandatory operator co-approval",
     )
+    delegated_operators = models.ManyToManyField("accounts.Operator", blank=True, related_name="delegated_agents")
 
+    api_key = models.CharField(max_length=128, blank=True, default="", help_text="Full Agent API Key for integration")
     api_key_prefix = models.CharField(max_length=16, db_index=True)
     api_key_hash = models.CharField(max_length=64)
 

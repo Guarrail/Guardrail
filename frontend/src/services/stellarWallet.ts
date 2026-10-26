@@ -42,11 +42,66 @@ export async function fetchLiveStellarBalance(address: string): Promise<string> 
     }
     const data = await res.json();
     const nativeBal = data.balances?.find((b: { asset_type: string }) => b.asset_type === 'native');
-    return nativeBal ? parseFloat(nativeBal.balance).toFixed(2) : '0.00';
+    return nativeBal ? parseFloat(nativeBal.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
   } catch (err) {
     console.warn('Could not reach Horizon Testnet, using default balance:', err);
     return '100.00';
   }
+}
+
+export interface LiveAccountBalances {
+  xlm: string;
+  usdc?: string;
+  eurc?: string;
+  allBalances: Array<{ asset_code: string; balance: string; is_native: boolean; issuer: string | null }>;
+}
+
+export async function fetchLiveAccountBalances(address: string): Promise<LiveAccountBalances> {
+  const result: LiveAccountBalances = {
+    xlm: '100.00',
+    allBalances: [],
+  };
+
+  if (!address || !address.startsWith('G')) {
+    return result;
+  }
+
+  try {
+    const res = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.balances)) {
+        for (const b of data.balances) {
+          if (b.asset_type === 'native') {
+            const num = parseFloat(b.balance);
+            result.xlm = isNaN(num) ? '0.00' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            result.allBalances.push({
+              asset_code: 'XLM',
+              balance: result.xlm,
+              is_native: true,
+              issuer: null,
+            });
+          } else {
+            const code = b.asset_code || '';
+            const num = parseFloat(b.balance);
+            const formatted = isNaN(num) ? '0.00' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            if (code === 'USDC') result.usdc = formatted;
+            if (code === 'EURC') result.eurc = formatted;
+            result.allBalances.push({
+              asset_code: code,
+              balance: formatted,
+              is_native: false,
+              issuer: b.asset_issuer || null,
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Horizon live account query notice:', err);
+  }
+
+  return result;
 }
 
 /**

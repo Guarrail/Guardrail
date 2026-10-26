@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ControlledWalletState } from '../types';
 import { api, ApiAgent, ApiPolicy } from '../services/api';
+import { AgentApiConfigModal } from './AgentApiConfigModal';
 import {
   Bot,
   Key,
@@ -23,14 +25,25 @@ import {
   CheckCircle2,
   X,
   Radio,
+  Terminal,
+  Coins,
+  ArrowDownLeft,
+  ArrowUpRight,
+  UserPlus,
 } from 'lucide-react';
 
 interface AIAgentViewProps {
   controlledWallet: ControlledWalletState;
   onOpenSimulateModal?: () => void;
+  onRequestCreated?: () => void;
 }
 
-export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) => {
+export const AIAgentView: React.FC<AIAgentViewProps> = ({
+  controlledWallet,
+  onOpenSimulateModal,
+  onRequestCreated,
+}) => {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<ApiAgent[]>([]);
   const [policies, setPolicies] = useState<ApiPolicy[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -54,6 +67,14 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
     stellar_secret_key?: string;
   } | null>(null);
   const [showSecretKey, setShowSecretKey] = useState<boolean>(false);
+
+  // Dedicated API Configuration & Transaction Runner Modal
+  const [configModalData, setConfigModalData] = useState<{
+    agent: ApiAgent;
+    apiKey?: string;
+    stellarSecretKey?: string;
+    policy?: ApiPolicy;
+  } | null>(null);
 
   // Edit modal state
   const [editingAgent, setEditingAgent] = useState<ApiAgent | null>(null);
@@ -151,7 +172,15 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
       });
 
       setCreatedAgentCredentials(res);
-      setToastMessage(`Agent ${res.agent.name} successfully created with Stellar PDA!`);
+      setIsCreateModalOpen(false);
+      const foundPolicy = policies.find((p) => p.id === newPolicyId);
+      setConfigModalData({
+        agent: res.agent,
+        apiKey: res.api_key,
+        stellarSecretKey: res.stellar_secret_key,
+        policy: foundPolicy,
+      });
+      setToastMessage(`Agent ${res.agent.name} successfully created! API Config opened.`);
       fetchData();
     } catch (err: unknown) {
       setToastMessage(`Creation failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -234,7 +263,13 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
   const handleRotateKey = async (agent: ApiAgent) => {
     try {
       const res = await api.rotateAgentKey(agent.id);
-      setToastMessage(`Rotated API Key for ${agent.name}. New prefix: ${res.agent.api_key_prefix}`);
+      const foundPolicy = policies.find((p) => p.id === agent.policy);
+      setConfigModalData({
+        agent: res.agent,
+        apiKey: res.api_key,
+        policy: foundPolicy,
+      });
+      setToastMessage(`Rotated API Key for ${agent.name}. New key displayed in API Config.`);
       fetchData();
     } catch (err: unknown) {
       setToastMessage(`Key rotation failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -247,6 +282,56 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
     navigator.clipboard.writeText(text);
     setCopiedKey(label);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleFundPda = async (agent: ApiAgent) => {
+    try {
+      setToastMessage(`Funding PDA ${agent.stellar_public_key.slice(0, 8)}... via Stellar Testnet Friendbot...`);
+      await api.requestAgentFunds(agent.id, 'friendbot');
+      setToastMessage(`PDA funded with 10,000 XLM on Stellar Testnet!`);
+      fetchData();
+    } catch (err: unknown) {
+      setToastMessage(`PDA funding failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTimeout(() => setToastMessage(''), 4000);
+    }
+  };
+
+  const handleRefundToOwner = async (agent: ApiAgent) => {
+    const amountStr = prompt(`Enter amount of XLM to return from PDA to owner wallet (leave blank for all available):`);
+    if (amountStr !== null && amountStr.trim() !== '' && isNaN(Number(amountStr))) {
+      alert('Please enter a valid numeric amount.');
+      return;
+    }
+    try {
+      setToastMessage(`Submitting on-chain refund from PDA to owner wallet on Stellar Testnet...`);
+      const res = await api.refundAgentFundsToOwner(agent.id, amountStr?.trim() || undefined);
+      setToastMessage(`Refunded ${res.amount} XLM to owner! Stellar Tx: ${res.stellar_tx_hash.slice(0, 10)}...`);
+      fetchData();
+    } catch (err: unknown) {
+      setToastMessage(`Refund failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTimeout(() => setToastMessage(''), 4500);
+    }
+  };
+
+  const handleDelegateModal = (agent: ApiAgent) => {
+    const address = prompt(`Enter Stellar wallet address (G...) to delegate to agent "${agent.name}":`);
+    if (!address || !address.trim().startsWith('G') || address.trim().length !== 56) {
+      if (address) alert('Invalid Stellar public key format. Must start with G and be 56 characters.');
+      return;
+    }
+    const alias = prompt('Enter alias/name for this delegated operator (optional):') || '';
+    api.delegateOperatorToAgent(agent.id, address.trim(), alias)
+      .then((res) => {
+        setToastMessage(`Operator ${address.slice(0, 8)} delegated to ${agent.name}!`);
+        fetchData();
+        setTimeout(() => setToastMessage(''), 3500);
+      })
+      .catch((err) => {
+        setToastMessage(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
+        setTimeout(() => setToastMessage(''), 3500);
+      });
   };
 
   const filteredAgents = agents.filter((ag) => {
@@ -407,24 +492,115 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
                               <Copy className="w-3 h-3 text-white/40 hover:text-white" />
                             )}
                           </button>
+                          <a
+                            href={`https://stellar.expert/explorer/testnet/account/${ag.stellar_public_key}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-400 hover:text-blue-300 ml-0.5"
+                            title="View PDA on Stellar Expert Testnet"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
                         </div>
                       ) : (
                         <span className="text-white/30 italic">Not set</span>
                       )}
                     </div>
 
+                    {ag.pda_tx_hash && (
+                      <div className="flex items-center justify-between text-white/50 text-[11px] pt-1 border-t border-white/[0.04]">
+                        <span>Policy On-Chain</span>
+                        <a
+                          href={`https://stellar.expert/explorer/testnet/tx/${ag.pda_tx_hash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-mono"
+                          title="View on-chain ManageData policy entry on Stellar Expert"
+                        >
+                          <span>ManageData Verified</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between text-white/50 text-[11px] pt-1 border-t border-white/[0.04]">
-                      <span>API Key Prefix</span>
-                      <span className="font-mono text-white/70">{ag.api_key_prefix}...</span>
+                      <span>Delegated Approvers</span>
+                      <span className="text-white/80 font-mono text-[11px]">
+                        {ag.delegated_operators && ag.delegated_operators.length > 0
+                          ? `${ag.delegated_operators.length} Operator(s)`
+                          : 'None (Owner only)'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-white/50 text-[11px] pt-1 border-t border-white/[0.04]">
+                      <span>API Key</span>
+                      <div className="flex items-center gap-1.5 font-mono text-emerald-300">
+                        <span>{ag.api_key ? `${ag.api_key.slice(0, 15)}...` : `${ag.api_key_prefix}...`}</span>
+                        <button
+                          onClick={() => copyText(ag.api_key || ag.api_key_prefix, `apikey_${ag.id}`)}
+                          className="hover:text-white transition-colors cursor-pointer"
+                          title="Copy Full API Key"
+                        >
+                          {copiedKey === `apikey_${ag.id}` ? (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-white/40 hover:text-white" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Card Action Buttons */}
-                <div className="flex items-center gap-2 pt-3 border-t border-white/[0.06]">
+                <div className="flex items-center gap-2 pt-3 border-t border-white/[0.06] flex-wrap">
+                  <button
+                    onClick={() => {
+                      const foundPolicy = policies.find((p) => p.id === ag.policy);
+                      setConfigModalData({
+                        agent: ag,
+                        apiKey: ag.api_key || ag.api_key_prefix,
+                        stellarSecretKey: ag.stellar_secret_key,
+                        policy: foundPolicy,
+                      });
+                    }}
+                    className="flex-1 min-w-[95px] flex items-center justify-center gap-1.5 py-2 px-2.5 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    title="Open API Configuration & Transaction Runner"
+                  >
+                    <Terminal className="w-3.5 h-3.5 text-blue-400" />
+                    <span>API Config</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleFundPda(ag)}
+                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    title="Fund PDA with 10,000 XLM on Stellar Testnet via Friendbot"
+                  >
+                    <Coins className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Top-up PDA</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleRefundToOwner(ag)}
+                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    title="Refund PDA funds back to your signup wallet"
+                  >
+                    <ArrowDownLeft className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Refund</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleDelegateModal(ag)}
+                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    title="Delegate another operator to approve transactions"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Delegate</span>
+                  </button>
+
                   <button
                     onClick={() => openEditModal(ag)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/80 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/80 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     <span>Edit</span>
@@ -440,7 +616,7 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
 
                   <button
                     onClick={() => handleToggleKillswitch(ag)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
                       isKillswitch
                         ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
                         : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
@@ -951,6 +1127,23 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({ controlledWallet }) =>
             </form>
           </div>
         </div>
+      )}
+
+      {/* --- MODAL: AGENT API CONFIG & TRANSACTION RUNNER --- */}
+      {configModalData && (
+        <AgentApiConfigModal
+          agent={configModalData.agent}
+          initialApiKey={configModalData.apiKey}
+          initialStellarSecretKey={configModalData.stellarSecretKey}
+          policy={configModalData.policy || policies.find((p) => p.id === configModalData.agent.policy)}
+          walletAddress={controlledWallet.address}
+          onClose={() => setConfigModalData(null)}
+          onRequestCreated={onRequestCreated}
+          onNavigateToRequests={() => {
+            setConfigModalData(null);
+            navigate('/requests');
+          }}
+        />
       )}
     </div>
   );

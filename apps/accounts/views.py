@@ -1,5 +1,6 @@
 import base64
 import secrets
+from decimal import Decimal
 from datetime import timedelta
 from rest_framework import status, viewsets
 from rest_framework.views import APIView
@@ -9,7 +10,13 @@ from drf_spectacular.utils import extend_schema
 from stellar_sdk import Keypair
 
 from apps.core.utils import get_utc_now
+from apps.core.stellar import (
+    get_cosigner_keypair,
+    get_account_balances_from_horizon,
+    is_valid_stellar_address,
+)
 from apps.audit.models import record_audit_event
+from apps.wallets.models import ControlledWallet
 from .models import Operator, PrivilegeEscalationRequest
 from .serializers import (
     ChallengeRequestSerializer,
@@ -28,6 +35,8 @@ class OperatorChallengeView(APIView):
     Generate an authentication challenge for an operator's Stellar wallet.
     Step 1 of the SEP-10 wallet ownership verification flow.
     """
+    authentication_classes = []
+    permission_classes = []
 
     @extend_schema(
         request=ChallengeRequestSerializer,
@@ -62,6 +71,8 @@ class OperatorVerifyView(APIView):
     Verify the cryptographic signature produced by the operator's wallet.
     Step 2 of the wallet ownership verification flow.
     """
+    authentication_classes = []
+    permission_classes = []
 
     @extend_schema(
         request=VerifySignatureSerializer,
@@ -160,6 +171,23 @@ class OperatorVerifyView(APIView):
             update_fields.append("alias")
         operator.save(update_fields=update_fields)
 
+        # Auto-create or ensure primary ControlledWallet for the verified operator
+        wallet, _ = ControlledWallet.objects.get_or_create(
+            address=operator.address,
+            defaults={
+                "operator": operator,
+                "name": f"{operator.alias or 'Primary'} Controlled Wallet",
+                "cosigner_address": get_cosigner_keypair().public_key,
+            },
+        )
+        # Fetch live testnet balance
+        balances = get_account_balances_from_horizon(operator.address)
+        for b in balances:
+            if b.get("asset_type") == "native":
+                wallet.balance = Decimal(b.get("balance", "0"))
+                wallet.save(update_fields=["balance"])
+                break
+
         return Response(
             {
                 "message": "Operator wallet successfully verified and authenticated.",
@@ -211,10 +239,23 @@ class OperatorMeView(APIView):
             return Response({"error": "Operator not found."}, status=status.HTTP_404_NOT_FOUND)
 
 
-class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
-    """List and inspect verified operators for the shared account."""
+class OperatorViewSet(viewsets.ModelViewSet):
+    """List, inspect, and delegate verified operators for the shared account."""
     queryset = Operator.objects.all().order_by("-created_at")
     serializer_class = OperatorSerializer
+
+    def create(self, request, *args, **kwargs):
+        address = request.data.get("address")
+        if not is_valid_stellar_address(address):
+            return Response({"error": "Invalid Stellar wallet address."}, status=status.HTTP_400_BAD_REQUEST)
+
+        alias = request.data.get("alias", "")
+        role = request.data.get("role", "OPERATOR")
+        operator, created = Operator.objects.update_or_create(
+            address=address,
+            defaults={"alias": alias, "role": role, "is_verified": True},
+        )
+        return Response(OperatorSerializer(operator).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class PrivilegeEscalationViewSet(viewsets.ModelViewSet):

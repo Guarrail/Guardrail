@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 from rest_framework import status, viewsets
 from rest_framework.views import APIView
@@ -16,6 +17,7 @@ from apps.policies.models import SpendingLedger
 from .models import TransactionRequest, Permit
 from .serializers import (
     AgentSubmitRequestSerializer,
+    AgentSwapRequestSerializer,
     TransactionRequestSerializer,
     PermitSerializer,
     OperatorApprovalSerializer,
@@ -31,6 +33,8 @@ from .services import (
     operator_reject_request,
     cosign_and_execute_request,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSubmitRequestView(APIView):
@@ -66,19 +70,112 @@ class AgentSubmitRequestView(APIView):
             except ControlledWallet.DoesNotExist:
                 return Response({"error": "Specified wallet does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
-        req, permit = evaluate_and_create_request(
-            agent=agent,
-            request_id=data["request_id"],
-            recipient=data["recipient"],
-            amount=data["amount"],
-            asset_code=data.get("asset", "XLM"),
-            asset_issuer=data.get("issuer"),
-            wallet=target_wallet,
-        )
+        try:
+            req, permit = evaluate_and_create_request(
+                agent=agent,
+                request_id=data.get("request_id"),
+                recipient=data["recipient"],
+                amount=data["amount"],
+                asset_code=data.get("asset", "XLM"),
+                asset_issuer=data.get("issuer"),
+                wallet=target_wallet,
+                stellar_envelope_xdr=data.get("stellar_envelope_xdr", ""),
+            )
+        except ValidationError as e:
+            err_msg = e.message if hasattr(e, "message") else str(e)
+            if isinstance(err_msg, list):
+                err_msg = err_msg[0]
+            return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        auto_execute = request.data.get("auto_execute", False)
+        if auto_execute and req.status == "APPROVED" and agent.autonomy_mode == "AUTONOMOUS":
+            try:
+                req = cosign_and_execute_request(
+                    request_id=req.request_id,
+                    mock_stellar=request.data.get("mock_stellar", False),
+                )
+            except Exception as e:
+                logger.warning("Autonomous live execution error: %s", str(e))
 
         resp_status = status.HTTP_201_CREATED
         if req.status == "BLOCKED":
             resp_status = status.HTTP_200_OK  # Evaluation completed; status clearly reports BLOCKED
+
+        return Response(TransactionRequestSerializer(req).data, status=resp_status)
+
+
+class AgentSwapView(APIView):
+    """
+    Module 3.5 — AI Agent Token Swap / Trade Submission (Stellar DEX / AMM).
+    Authenticated via Agent API Key (Header `X-Agent-Key`).
+    Evaluates swap against policy constraints (allowed assets, max per tx, daily budget),
+    and executes live path payment swap on Stellar Testnet or holds for human approval.
+    """
+
+    authentication_classes = [AgentAPIKeyAuthentication]
+
+    @extend_schema(
+        request=AgentSwapRequestSerializer,
+        responses={200: TransactionRequestSerializer, 201: TransactionRequestSerializer, 400: dict},
+        description="Submit an agent token swap / buy request on Stellar DEX / AMM. Returns execution result or approval status.",
+    )
+    def post(self, request):
+        if not isinstance(request.user, AIAgent):
+            return Response(
+                {"error": "Authentication required. Provide a valid X-Agent-Key header."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        agent: AIAgent = request.user
+        serializer = AgentSwapRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        send_asset = data.get("send_asset", "XLM")
+        dest_asset = data.get("dest_asset", "USDC")
+        amount = data["amount"]
+        destination = data.get("destination") or agent.wallet.address
+
+        swap_details = {
+            "send_asset": send_asset,
+            "send_issuer": data.get("send_issuer"),
+            "dest_asset": dest_asset,
+            "dest_issuer": data.get("dest_issuer"),
+            "min_dest_amount": str(data["min_dest_amount"]) if data.get("min_dest_amount") else None,
+            "destination": destination,
+        }
+
+        try:
+            req, permit = evaluate_and_create_request(
+                agent=agent,
+                request_id=data.get("request_id"),
+                recipient=destination,
+                amount=amount,
+                asset_code=f"{send_asset}->{dest_asset}"[:12],
+                asset_issuer=data.get("dest_issuer"),
+                wallet=agent.wallet,
+                stellar_envelope_xdr="",
+                swap_details=swap_details,
+            )
+        except ValidationError as e:
+            err_msg = e.message if hasattr(e, "message") else str(e)
+            if isinstance(err_msg, list):
+                err_msg = err_msg[0]
+            return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        auto_execute = data.get("auto_execute", True)
+        if auto_execute and req.status == "APPROVED" and agent.autonomy_mode == "AUTONOMOUS":
+            try:
+                req = cosign_and_execute_request(
+                    request_id=req.request_id,
+                    mock_stellar=data.get("mock_stellar", False),
+                )
+            except Exception as e:
+                logger.warning("Autonomous live swap execution error: %s", str(e))
+
+        resp_status = status.HTTP_201_CREATED
+        if req.status == "BLOCKED":
+            resp_status = status.HTTP_200_OK
 
         return Response(TransactionRequestSerializer(req).data, status=resp_status)
 
@@ -185,6 +282,16 @@ class OperatorRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 operator_address=serializer.validated_data["operator_address"],
                 notes=serializer.validated_data.get("notes", ""),
             )
+            auto_execute = request.data.get("auto_execute", False)
+            if auto_execute and updated_req.status == "APPROVED":
+                try:
+                    updated_req = cosign_and_execute_request(
+                        request_id=updated_req.request_id,
+                        mock_stellar=request.data.get("mock_stellar", False),
+                    )
+                except Exception as e:
+                    logger.warning("Auto execution after approval failed: %s", str(e))
+
             return Response(TransactionRequestSerializer(updated_req).data)
         except ValidationError as e:
             return Response({"error": str(e.message if hasattr(e, "message") else e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -238,6 +345,17 @@ class OperatorRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         req.save(update_fields=["operator_signatures", "collected_weight", "status", "updated_at"])
 
+        # If threshold reached and auto_execute requested, execute live
+        auto_execute = request.data.get("auto_execute", False)
+        if auto_execute and req.status == "APPROVED":
+            try:
+                req = cosign_and_execute_request(
+                    request_id=req.request_id,
+                    mock_stellar=request.data.get("mock_stellar", False),
+                )
+            except Exception as e:
+                logger.warning("Auto execution after signing failed: %s", str(e))
+
         record_audit_event(
             event_type="OPERATOR_SIGNED_TRANSACTION",
             actor_id=operator_address,
@@ -282,7 +400,7 @@ class OperatorRequestViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], url_path="cosign-and-submit")
     def cosign_and_submit(self, request, pk=None):
         req = self.get_object()
-        mock_mode = request.data.get("mock_stellar", True)
+        mock_mode = request.data.get("mock_stellar", False)
 
         try:
             executed_req = cosign_and_execute_request(request_id=req.request_id, mock_stellar=mock_mode)

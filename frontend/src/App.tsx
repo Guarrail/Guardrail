@@ -16,6 +16,8 @@ import { OnboardingView } from './components/OnboardingView';
 import { DashboardView } from './components/DashboardView';
 import { RequestsView } from './components/RequestsView';
 import { PolicyConfigView } from './components/PolicyConfigView';
+import { CreatePolicyPage } from './components/CreatePolicyPage';
+import { EditPolicyPage } from './components/EditPolicyPage';
 import { WalletSecurityView } from './components/WalletSecurityView';
 import { AIAgentView } from './components/AIAgentView';
 import { AuditLogView } from './components/AuditLogView';
@@ -24,6 +26,7 @@ import { RequestDetailModal } from './components/RequestDetailModal';
 import { SimulateRequestModal } from './components/SimulateRequestModal';
 import { AuthModal } from './components/AuthModal';
 import { LoginPage } from './components/LoginPage';
+import { fetchLiveAccountBalances } from './services/stellarWallet';
 import {
   LayoutDashboard,
   FileText,
@@ -145,7 +148,7 @@ function mapBackendRequest(r: ApiTransactionRequest): AgentRequest {
     id: r.request_id,
     backendId: r.id,
     agentId: r.agent,
-    agentName: 'Autonomous Agent',
+    agentName: r.agent_name || (r.agent_id ? `Agent ${r.agent_id}` : 'Autonomous Agent'),
     recipientName: r.recipient ? `${r.recipient.slice(0, 6)}...${r.recipient.slice(-4)}` : 'Approved Vendor',
     recipientAddress: r.recipient,
     amount: parseFloat(r.amount),
@@ -305,14 +308,36 @@ export default function App() {
 
       if (walletsList.length > 0) {
         const w = walletsList[0];
+        let assetBalances = w.asset_balances || [];
+        let balanceXlm = w.balance;
+        let balanceUsdc = parseFloat(w.balance);
+
+        // Fetch live balances from Horizon for the controlled wallet address
+        try {
+          if (w.address && w.address.startsWith('G')) {
+            const live = await fetchLiveAccountBalances(w.address);
+            if (live.xlm) {
+              balanceXlm = live.xlm;
+            }
+            if (live.allBalances && live.allBalances.length > 0) {
+              assetBalances = assetBalances.map((ab) => {
+                const found = live.allBalances.find((lb) => lb.asset_code === ab.asset_code);
+                return found ? { ...ab, balance: found.balance } : ab;
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Live wallet sync error:', err);
+        }
+
         setControlledWallet((prev) => ({
           ...prev,
           id: w.id,
           name: w.name,
           address: w.address,
           network: w.network === 'PUBLIC' ? 'Stellar Public' : 'Stellar Testnet',
-          balanceUsdc: parseFloat(w.balance),
-          balanceXlm: w.balance,
+          balanceUsdc: balanceUsdc,
+          balanceXlm: balanceXlm,
           masterWeight: w.master_weight,
           agentSignerAddress: w.agent_signer_address,
           agentSignerWeight: w.agent_signer_weight,
@@ -320,7 +345,7 @@ export default function App() {
           cosignerWeight: w.cosigner_weight,
           currentThreshold: w.threshold_med,
           currentSignersCount: 3,
-          assetBalances: w.asset_balances,
+          assetBalances: assetBalances,
         }));
       }
 
@@ -582,6 +607,35 @@ export default function App() {
                   />
 
                   <Route
+                    path="/policies/create"
+                    element={
+                      <CreatePolicyPage
+                        onPolicyCreated={() => refreshBackendData()}
+                      />
+                    }
+                  />
+                  <Route path="/policies/new" element={<Navigate to="/policies/create" replace />} />
+
+                  <Route
+                    path="/policies/edit"
+                    element={
+                      <EditPolicyPage
+                        policyConfig={policyConfig}
+                        setPolicyConfig={setPolicyConfig}
+                      />
+                    }
+                  />
+                  <Route
+                    path="/policies/:id/edit"
+                    element={
+                      <EditPolicyPage
+                        policyConfig={policyConfig}
+                        setPolicyConfig={setPolicyConfig}
+                      />
+                    }
+                  />
+
+                  <Route
                     path="/wallet-security"
                     element={
                       <WalletSecurityView
@@ -598,6 +652,7 @@ export default function App() {
                       <AIAgentView
                         controlledWallet={controlledWallet}
                         onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                        onRequestCreated={refreshBackendData}
                       />
                     }
                   />

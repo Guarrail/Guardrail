@@ -19,6 +19,7 @@ class ControlledWallet(BaseModel):
     address = models.CharField(max_length=56, unique=True, db_index=True)
     name = models.CharField(max_length=150, default="Primary Controlled Wallet")
     operator = models.ForeignKey(Operator, on_delete=models.CASCADE, related_name="controlled_wallets")
+    delegated_operators = models.ManyToManyField(Operator, blank=True, related_name="delegated_wallets")
     network = models.CharField(max_length=10, choices=NETWORK_CHOICES, default="TESTNET")
     is_verified = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)

@@ -1,6 +1,8 @@
+from django.conf import settings
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.views.generic import RedirectView
+from django.views.static import serve
 from rest_framework.routers import DefaultRouter
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -19,6 +21,7 @@ from apps.policies.views import PolicyViewSet, AllowedRecipientViewSet, AllowedA
 from apps.agents.views import AIAgentViewSet
 from apps.coordinator.views import (
     AgentSubmitRequestView,
+    AgentSwapView,
     AgentRequestDetailView,
     AgentPolicySummaryView,
     OperatorRequestViewSet,
@@ -100,6 +103,8 @@ urlpatterns = [
     path("api/v1/agent/requests/", AgentSubmitRequestView.as_view(), name="agent-submit-request"),
     path("api/v1/agent/requests/<str:request_id>/", AgentRequestDetailView.as_view(), name="agent-request-detail"),
     path("api/v1/agent/policy-summary/", AgentPolicySummaryView.as_view(), name="agent-policy-summary"),
+    path("api/v1/agent/swap/", AgentSwapView.as_view(), name="agent-swap"),
+    path("api/v1/agent/trade/", AgentSwapView.as_view(), name="agent-trade"),
 
     # Operator Coordinator & Dashboard Stats
     path("api/v1/coordinator/dashboard-stats/", DashboardStatsView.as_view(), name="coordinator-dashboard-stats"),
@@ -110,4 +115,7 @@ urlpatterns = [
 
     # ViewSets Router
     path("api/v1/", include(router.urls)),
+
+    # Serve static assets (Admin panel, Swagger UI, static assets)
+    re_path(r"^static/(?P<path>.*)$", serve, {"document_root": settings.STATIC_ROOT}),
 ]

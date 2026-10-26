@@ -39,23 +39,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onApproveQuick,
   onRejectQuick,
 }) => {
+  const formatAssetBalance = (val: string | number | undefined): string => {
+    if (val === undefined || val === null || val === '') return '0.00';
+    if (typeof val === 'number') {
+      return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    const cleanStr = String(val).replace(/,/g, '');
+    const num = parseFloat(cleanStr);
+    if (isNaN(num)) return String(val);
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   // Available wallet assets breakdown
   const defaultAssets: WalletAsset[] = [
-    {
-      asset_code: 'USDC',
-      asset_name: 'USD Coin (Circle)',
-      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-      balance: controlledWallet.balanceUsdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      is_native: false,
-      usd_rate: 1.0,
-    },
     {
       asset_code: 'XLM',
       asset_name: 'Stellar Lumens',
       issuer: null,
-      balance: parseFloat(controlledWallet.balanceXlm || '100.00').toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      balance: formatAssetBalance(controlledWallet.balanceXlm || '100.00'),
       is_native: true,
       usd_rate: 0.12,
+    },
+    {
+      asset_code: 'USDC',
+      asset_name: 'USD Coin (Circle)',
+      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+      balance: formatAssetBalance(controlledWallet.balanceUsdc || 2450.5),
+      is_native: false,
+      usd_rate: 1.0,
     },
     {
       asset_code: 'EURC',
@@ -67,12 +78,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     },
   ];
 
-  const assets: WalletAsset[] =
+  const rawAssets =
     controlledWallet.assetBalances && controlledWallet.assetBalances.length > 0
       ? controlledWallet.assetBalances
       : defaultAssets;
 
-  const [selectedAssetCode, setSelectedAssetCode] = useState<string>('USDC');
+  const assets: WalletAsset[] = rawAssets.map((a) => ({
+    ...a,
+    balance: formatAssetBalance(a.balance),
+  }));
+
+  const [selectedAssetCode, setSelectedAssetCode] = useState<string>('XLM');
   const [isAssetsDropdownOpen, setIsAssetsDropdownOpen] = useState<boolean>(false);
   const [copiedIssuer, setCopiedIssuer] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -123,17 +139,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="flex flex-col gap-7 p-4 sm:p-8 max-w-7xl mx-auto w-full font-manrope">
       {/* 6 Top Metric KPI Cards - Apple Frosted Glass with Specular Borders */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4 relative ${isAssetsDropdownOpen ? 'z-50' : 'z-10'}`}>
         {/* Card 1: Balance with Assets Dropdown */}
-        <div ref={dropdownRef} className="relative p-4.5 bg-white/[0.035] backdrop-blur-xl border border-white/[0.08] hover:border-white/[0.16] rounded-2xl flex flex-col justify-between shadow-[0_4px_20px_rgba(0,0,0,0.25),inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-all duration-200 group">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
+        <div
+          ref={dropdownRef}
+          className={`relative p-3.5 sm:p-4.5 bg-white/[0.035] backdrop-blur-xl border border-white/[0.08] hover:border-white/[0.16] rounded-2xl flex flex-col justify-between shadow-[0_4px_20px_rgba(0,0,0,0.25),inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-all duration-200 group min-w-0 ${
+            isAssetsDropdownOpen ? 'z-50 ring-1 ring-blue-500/40 bg-white/[0.06]' : 'z-10'
+          }`}
+        >
+          <div className="flex items-center justify-between min-w-0 gap-1">
+            <span className="text-[10px] sm:text-[11px] font-semibold text-white/50 uppercase tracking-wider truncate">
               Wallet Balance
             </span>
             {/* Interactive Assets Dropdown Trigger */}
             <button
               onClick={() => setIsAssetsDropdownOpen(!isAssetsDropdownOpen)}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[10px] font-medium text-white/80 transition-all cursor-pointer"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[10px] font-medium text-white/80 transition-all cursor-pointer shrink-0"
               title="Switch treasury asset"
             >
               <span>{currentAsset.asset_code}</span>
@@ -141,14 +162,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          <div className="font-space text-lg sm:text-xl font-bold text-white tracking-tight mt-3 tabular-nums flex items-baseline gap-1.5">
-            <span>{currentAsset.balance}</span>
-            <span className="text-xs font-normal text-white/40">{currentAsset.asset_code}</span>
+          <div className="font-space font-bold text-white tracking-tight mt-2.5 sm:mt-3 tabular-nums flex items-baseline gap-1.5 min-w-0 overflow-hidden">
+            <span
+              className="text-base sm:text-lg xl:text-xl font-bold truncate"
+              title={`${currentAsset.balance} ${currentAsset.asset_code}`}
+            >
+              {currentAsset.balance}
+            </span>
+            <span className="text-[11px] sm:text-xs font-normal text-white/40 shrink-0">
+              {currentAsset.asset_code}
+            </span>
           </div>
 
           {/* Frosted Glass Assets Dropdown Popover */}
           {isAssetsDropdownOpen && (
-            <div className="absolute top-full left-0 mt-2 w-72 p-3 bg-[#0d1522]/95 backdrop-blur-2xl border border-white/[0.15] rounded-2xl shadow-[0_16px_40px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.1)] z-50 animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute top-full left-0 mt-2.5 w-72 max-w-[calc(100vw-3rem)] p-3 bg-[#0a101d] border border-white/[0.22] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.95),0_8px_24px_rgba(0,0,0,0.7),inset_0_1px_0_0_rgba(255,255,255,0.18)] z-[100] animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/[0.08]">
                 <div className="flex items-center gap-1.5">
                   <Coins className="w-3.5 h-3.5 text-blue-400" />

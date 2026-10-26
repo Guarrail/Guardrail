@@ -157,8 +157,15 @@ export interface ApiAgent {
   policy: string;
   policy_name?: string;
   stellar_public_key: string;
+  stellar_secret_key?: string;
+  pda_tx_hash?: string;
+  pda_funded?: boolean;
+  pda_explorer_url?: string;
+  pda_tx_explorer_url?: string;
+  delegated_operators?: string[];
   signer_weight: number;
   autonomy_mode: 'AUTONOMOUS' | 'HUMAN_APPROVAL_ALWAYS';
+  api_key?: string;
   api_key_prefix: string;
   status: 'ACTIVE' | 'INACTIVE' | 'DISABLED' | 'REVOKED';
   is_operational: boolean;
@@ -256,7 +263,7 @@ export const api = {
       body: JSON.stringify({ operator_address: operatorAddress, reason }),
     }),
 
-  cosignAndSubmit: (id: string, mockStellar: boolean = true) =>
+  cosignAndSubmit: (id: string, mockStellar: boolean = false) =>
     fetchJson<ApiTransactionRequest>(`/api/v1/coordinator/requests/${id}/cosign-and-submit/`, {
       method: 'POST',
       body: JSON.stringify({ mock_stellar: mockStellar }),
@@ -274,12 +281,13 @@ export const api = {
   // Agent Direct Proposal (Simulation or Live)
   submitAgentRequest: (
     data: {
-      request_id: string;
+      request_id?: string;
       recipient: string;
       amount: string;
       asset: string;
       issuer?: string | null;
       wallet_id?: string;
+      stellar_envelope_xdr?: string;
     },
     apiKey?: string
   ) => {
@@ -293,6 +301,54 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
+
+  submitAgentSwap: (
+    data: {
+      request_id?: string;
+      send_asset?: string;
+      send_issuer?: string | null;
+      dest_asset: string;
+      dest_issuer?: string | null;
+      amount: string;
+      min_dest_amount?: string;
+      destination?: string;
+      auto_execute?: boolean;
+    },
+    apiKey?: string
+  ) => {
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['X-Agent-Key'] = apiKey;
+    }
+    return fetchJson<ApiTransactionRequest>('/api/v1/agent/swap/', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+  },
+
+  getAgentPolicySummary: (apiKey: string) =>
+    fetchJson<{
+      agent_id: string;
+      wallet_address: string;
+      policy: {
+        name: string;
+        version: number;
+        max_amount_per_tx: string;
+        daily_spending_limit: string;
+        remaining_daily: string;
+        weekly_spending_limit: string;
+        remaining_weekly: string;
+        human_approval_threshold: string;
+        require_human_approval_always: boolean;
+      };
+      allowed_recipients: Array<{ address: string; label: string }>;
+      allowed_assets: Array<{ code: string; issuer: string | null }>;
+    }>('/api/v1/agent/policy-summary/', {
+      headers: {
+        'X-Agent-Key': apiKey,
+      },
+    }),
 
   // --- Policies ---
   getPolicies: () => fetchJson<ApiPolicy[] | { results: ApiPolicy[] }>('/api/v1/policies/'),
@@ -445,6 +501,85 @@ export const api = {
   rotateAgentKey: (id: string) =>
     fetchJson<{ agent: ApiAgent; api_key: string; warning: string }>(`/api/v1/agents/${id}/rotate-key/`, {
       method: 'POST',
+    }),
+
+  getAgentLiveBalance: (id: string) =>
+    fetchJson<{
+      agent_id: string;
+      stellar_public_key: string;
+      native_balance: string;
+      balances: Array<{ balance: string; asset_type: string; asset_code?: string }>;
+      onchain_data: Record<string, string>;
+      explorer_url: string;
+      pda_tx_hash: string;
+      pda_tx_url: string;
+    }>(`/api/v1/agents/${id}/live-balance/`),
+
+  refundAgentFundsToOwner: (id: string, amount?: string) =>
+    fetchJson<{
+      message: string;
+      stellar_tx_hash: string;
+      amount: string;
+      owner_address: string;
+      explorer_url: string;
+    }>(`/api/v1/agents/${id}/refund-to-owner/`, {
+      method: 'POST',
+      body: JSON.stringify(amount ? { amount } : {}),
+    }),
+
+  requestAgentFunds: (id: string, action: 'friendbot' | 'deposit' = 'friendbot', amount?: string) =>
+    fetchJson<{
+      message: string;
+      stellar_public_key?: string;
+      explorer_url?: string;
+      destination?: string;
+      amount?: string;
+      memo?: string;
+    }>(`/api/v1/agents/${id}/request-funds/`, {
+      method: 'POST',
+      body: JSON.stringify({ action, amount }),
+    }),
+
+  delegateOperatorToAgent: (id: string, operatorAddress: string, alias?: string, role: string = 'OPERATOR') =>
+    fetchJson<{
+      message: string;
+      delegated_operators: string[];
+    }>(`/api/v1/agents/${id}/delegate-operator/`, {
+      method: 'POST',
+      body: JSON.stringify({ operator_address: operatorAddress, alias, role }),
+    }),
+
+  getWalletLiveBalance: (walletId: string) =>
+    fetchJson<{
+      wallet_address: string;
+      balance: string;
+      balances: Array<{ balance: string; asset_type: string; asset_code?: string }>;
+      explorer_url: string;
+    }>(`/api/v1/wallets/${walletId}/live-balance/`),
+
+  fundWalletTestnet: (walletId: string) =>
+    fetchJson<{
+      success: boolean;
+      wallet_address: string;
+      balance: string;
+      balances: Array<{ balance: string; asset_type: string; asset_code?: string }>;
+      explorer_url: string;
+    }>(`/api/v1/wallets/${walletId}/fund-testnet/`, {
+      method: 'POST',
+    }),
+
+  delegatePlatformOperator: (data: { address: string; alias?: string; role?: string }) =>
+    fetchJson<{
+      id: string;
+      address: string;
+      alias: string;
+      role: string;
+      effective_role: string;
+      is_verified: boolean;
+      last_login: string | null;
+    }>('/api/v1/accounts/operators/', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   // --- Shared Account & Privilege Escalation ---

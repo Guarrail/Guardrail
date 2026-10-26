@@ -6,16 +6,49 @@ from .models import TransactionRequest, Permit
 class AgentSubmitRequestSerializer(serializers.Serializer):
     """Payload submitted by an AI Agent to propose a payment."""
 
-    request_id = serializers.CharField(max_length=100, help_text="Unique client idempotency key")
+    request_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Unique client idempotency key (optional, auto-generated if omitted)",
+    )
     recipient = serializers.CharField(max_length=56, help_text="Destination Stellar address")
     amount = serializers.DecimalField(max_digits=20, decimal_places=7)
     asset = serializers.CharField(max_length=12, default="XLM")
     issuer = serializers.CharField(max_length=56, required=False, allow_blank=True, default=None)
     wallet_id = serializers.UUIDField(required=False, default=None)
+    stellar_envelope_xdr = serializers.CharField(required=False, allow_blank=True, default="", help_text="Optional Stellar transaction envelope XDR signed by agent")
 
     def validate_recipient(self, value):
         if not is_valid_stellar_address(value):
             raise serializers.ValidationError("Invalid Stellar recipient address format.")
+        return value
+
+
+class AgentSwapRequestSerializer(serializers.Serializer):
+    """Payload submitted by an AI Agent to perform a token swap on Stellar DEX / AMM."""
+
+    request_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Unique client idempotency key (optional, auto-generated if omitted)",
+    )
+    send_asset = serializers.CharField(max_length=12, default="XLM", help_text="Asset to sell/send (e.g. XLM)")
+    send_issuer = serializers.CharField(max_length=56, required=False, allow_blank=True, default=None, help_text="Issuer address for send_asset if non-native")
+    dest_asset = serializers.CharField(max_length=12, default="USDC", help_text="Asset to buy/receive (e.g. USDC, EURC)")
+    dest_issuer = serializers.CharField(max_length=56, required=False, allow_blank=True, default=None, help_text="Issuer address for dest_asset (defaults to Circle testnet issuer if omitted)")
+    amount = serializers.DecimalField(max_digits=20, decimal_places=7, help_text="Amount of send_asset to swap")
+    min_dest_amount = serializers.DecimalField(max_digits=20, decimal_places=7, required=False, default=None, help_text="Minimum received amount for slippage protection")
+    destination = serializers.CharField(max_length=56, required=False, allow_blank=True, default=None, help_text="Destination address to receive tokens (defaults to agent wallet)")
+    auto_execute = serializers.BooleanField(required=False, default=True, help_text="Whether to auto-execute swap if policy evaluation passes without requiring human approval")
+    mock_stellar = serializers.BooleanField(required=False, default=False, help_text="Mock execution flag for testing")
+
+    def validate_destination(self, value):
+        if value and not is_valid_stellar_address(value):
+            raise serializers.ValidationError("Invalid Stellar destination address format.")
         return value
 
 

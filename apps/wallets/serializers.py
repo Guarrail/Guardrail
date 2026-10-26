@@ -45,12 +45,14 @@ class ControlledWalletSerializer(serializers.ModelSerializer):
         return msg
 
     def get_asset_balances(self, obj) -> list[dict]:
+        bal_float = float(obj.balance)
         return [
             {
                 "asset_code": "XLM",
                 "asset_name": "Stellar Lumens",
                 "issuer": None,
-                "balance": str(obj.balance),
+                "balance": f"{bal_float:,.2f}",
+                "raw_balance": str(obj.balance),
                 "is_native": True,
                 "usd_rate": 0.12,
             },
@@ -58,7 +60,8 @@ class ControlledWalletSerializer(serializers.ModelSerializer):
                 "asset_code": "USDC",
                 "asset_name": "USD Coin (Circle)",
                 "issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-                "balance": "2450.5000000",
+                "balance": "2,450.50",
+                "raw_balance": "2450.5000000",
                 "is_native": False,
                 "usd_rate": 1.0,
             },
@@ -66,7 +69,8 @@ class ControlledWalletSerializer(serializers.ModelSerializer):
                 "asset_code": "EURC",
                 "asset_name": "Euro Coin (Circle)",
                 "issuer": "GDQOE23CFSUMSVQK4Y5JHPP0C4VNMSJ53O234LMNASDFG342",
-                "balance": "1800.0000000",
+                "balance": "1,800.00",
+                "raw_balance": "1800.0000000",
                 "is_native": False,
                 "usd_rate": 1.08,
             },

@@ -1,3 +1,5 @@
+name: guardrail
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,6 +9,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-guardrail_db}
       POSTGRES_USER: ${DB_USER:-guardrail_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-guardrail_secure_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -27,6 +30,7 @@ services:
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
+      - db_data:/app/data
     ports:
       - "8000:8000"
     environment:
@@ -39,6 +43,9 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-guardrail_secure_password}
       - DB_HOST=db
       - DB_PORT=5432
+      - DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-guardrail}
+      - DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-master2025}
+      - DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-admin@guardrail.stellar}
       - STELLAR_NETWORK=${STELLAR_NETWORK:-TESTNET}
       - STELLAR_HORIZON_URL=${STELLAR_HORIZON_URL:-https://horizon-testnet.stellar.org}
       - STELLAR_NETWORK_PASSPHRASE=${STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
@@ -61,4 +68,8 @@ services:
 
 volumes:
   postgres_data:
+    name: guardrail_postgres_data
   static_volume:
+    name: guardrail_static_volume
+  db_data:
+    name: guardrail_db_data

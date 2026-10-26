@@ -164,3 +164,75 @@ def test_idempotent_request_handling(ai_agent):
     # Budget should only have been reserved ONCE
     ledger = SpendingLedger.objects.get(wallet=ai_agent.wallet, policy=ai_agent.policy)
     assert ledger.reserved_daily == Decimal("10.0000000")
+
+
+@pytest.mark.django_db
+def test_conflicting_request_id_raises_validation_error(ai_agent):
+    req1, permit1 = evaluate_and_create_request(
+        agent=ai_agent,
+        request_id="req_conflict_001",
+        recipient=TEST_RECIPIENT_ADDRESS,
+        amount=Decimal("5.0000000"),
+        asset_code="XLM",
+    )
+
+    # Reusing same request_id with different amount (e.g. 10.0 instead of 5.0) must raise ValidationError
+    with pytest.raises(ValidationError, match="Conflict: request_id"):
+        evaluate_and_create_request(
+            agent=ai_agent,
+            request_id="req_conflict_001",
+            recipient=TEST_RECIPIENT_ADDRESS,
+            amount=Decimal("10.0000000"),
+            asset_code="XLM",
+        )
+
+
+@pytest.mark.django_db
+def test_omitted_request_id_auto_generates_unique_id(ai_agent):
+    req1, permit1 = evaluate_and_create_request(
+        agent=ai_agent,
+        request_id=None,
+        recipient=TEST_RECIPIENT_ADDRESS,
+        amount=Decimal("2.0000000"),
+        asset_code="XLM",
+    )
+    assert req1.request_id.startswith("req_")
+
+    req2, permit2 = evaluate_and_create_request(
+        agent=ai_agent,
+        request_id="",
+        recipient=TEST_RECIPIENT_ADDRESS,
+        amount=Decimal("2.0000000"),
+        asset_code="XLM",
+    )
+    assert req2.request_id.startswith("req_")
+    assert req1.request_id != req2.request_id
+
+
+@pytest.mark.django_db
+def test_agent_swap_execution_and_policy(client, ai_agent):
+    from apps.policies.models import AllowedAsset
+    AllowedAsset.objects.create(
+        policy=ai_agent.policy,
+        asset_code="USDC",
+        is_active=True,
+    )
+    swap_payload = {
+        "send_asset": "XLM",
+        "dest_asset": "USDC",
+        "amount": "5.0",
+        "auto_execute": True,
+        "mock_stellar": True,
+    }
+    response = client.post(
+        "/api/v1/agent/swap/",
+        data=swap_payload,
+        content_type="application/json",
+        HTTP_X_AGENT_KEY=ai_agent.raw_api_key,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "EXECUTED"
+    assert data["asset_code"] == "XLM->USDC"
+    assert data["amount"] == "5.0000000"
+    assert data["stellar_tx_hash"] != ""
