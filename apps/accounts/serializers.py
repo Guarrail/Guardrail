@@ -21,6 +21,8 @@ class ChallengeResponseSerializer(serializers.Serializer):
 class VerifySignatureSerializer(serializers.Serializer):
     address = serializers.CharField(max_length=56)
     signature = serializers.CharField(help_text="Hex or Base64 encoded ed25519 signature of the challenge")
+    challenge = serializers.CharField(required=False, allow_blank=True, help_text="Original challenge string signed by the wallet")
+    alias = serializers.CharField(max_length=100, required=False, allow_blank=True)
 
     def validate_address(self, value):
         if not is_valid_stellar_address(value):

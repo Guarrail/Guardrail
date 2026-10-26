@@ -1,3 +1,5 @@
+import React, { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { TabView, OperatorWalletState } from '../types';
 import { Logo } from './Logo';
 import {
@@ -11,17 +13,18 @@ import {
   X,
   ExternalLink,
   ChevronRight,
-  Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Copy,
+  Check
 } from 'lucide-react';
 
 interface SidebarProps {
-  currentTab: TabView;
-  onSelectTab: (tab: TabView) => void;
+  currentTab?: TabView;
+  onSelectTab?: (tab: TabView) => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
   pendingCount?: number;
-  onOpenSimulateModal: () => void;
+  onOpenSimulateModal?: () => void;
   operatorWallet?: OperatorWalletState;
 }
 
@@ -31,43 +34,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
   pendingCount = 1,
-  onOpenSimulateModal,
   operatorWallet,
 }) => {
+  const location = useLocation();
+  const [copiedAddr, setCopiedAddr] = useState(false);
+
+  const handleCopyAddr = (addr: string) => {
+    navigator.clipboard.writeText(addr);
+    setCopiedAddr(true);
+    setTimeout(() => setCopiedAddr(false), 2000);
+  };
+
   const navItems = [
     {
       id: 'dashboard' as TabView,
+      path: '/dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
     },
     {
       id: 'requests' as TabView,
+      path: '/requests',
       label: 'Requests',
       icon: FileText,
       badge: pendingCount > 0 ? pendingCount : undefined,
     },
     {
       id: 'policies' as TabView,
+      path: '/policies',
       label: 'Policies',
       icon: Shield,
     },
     {
       id: 'ai-agent' as TabView,
+      path: '/ai-agents',
       label: 'AI Agent',
       icon: Bot,
     },
     {
       id: 'wallet-security' as TabView,
+      path: '/wallet-security',
       label: 'Wallet Security',
       icon: Wallet,
     },
     {
       id: 'audit-log' as TabView,
+      path: '/audit-log',
       label: 'Audit Log',
       icon: ScrollText,
     },
     {
       id: 'settings' as TabView,
+      path: '/settings',
       label: 'Settings',
       icon: Settings,
     },
@@ -78,33 +96,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile Backdrop */}
       {isOpenMobile && (
         <div
-          className="fixed inset-0 bg-black/70 z-40 lg:hidden backdrop-blur-xs transition-opacity"
+          className="fixed inset-0 bg-black/75 z-40 lg:hidden backdrop-blur-md transition-opacity"
           onClick={onCloseMobile}
         />
       )}
 
       {/* Sidebar container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-60 bg-[#1D2430] border-r border-[#2B3340] flex flex-col justify-between p-4 transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-60 bg-[#0A0E18]/90 backdrop-blur-2xl border-r border-white/[0.08] flex flex-col justify-between p-4 transition-transform duration-200 ease-in-out lg:translate-x-0 ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-7">
           {/* Top Logo & Mobile Close button */}
           <div className="flex items-center justify-between pt-1 px-2">
-            <button
-              onClick={() => {
-                onSelectTab('landing');
-                onCloseMobile();
-              }}
+            <Link
+              to="/"
+              onClick={onCloseMobile}
               className="text-left focus:outline-hidden hover:opacity-90 transition-opacity"
               title="Return to Landing Page"
             >
               <Logo size="md" />
-            </button>
+            </Link>
             <button
               onClick={onCloseMobile}
-              className="lg:hidden p-1.5 text-[#9099A5] hover:text-white rounded-md hover:bg-[#202938]"
+              className="lg:hidden p-1.5 text-white/60 hover:text-white rounded-xl hover:bg-white/[0.06] transition-colors"
               aria-label="Close menu"
             >
               <X className="w-5 h-5" />
@@ -114,94 +130,109 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Nav Items */}
           <nav className="flex flex-col gap-1.5" aria-label="Main Navigation">
             {navItems.map((item) => {
-              const isActive = currentTab === item.id;
+              const isActive =
+                location.pathname === item.path ||
+                (item.path === '/dashboard' && (location.pathname === '/' || location.pathname === '')) ||
+                (item.path === '/ai-agents' && location.pathname === '/ai-agent');
               const Icon = item.icon;
               return (
-                <button
+                <Link
                   key={item.id}
+                  to={item.path}
                   onClick={() => {
-                    onSelectTab(item.id);
+                    if (onSelectTab) onSelectTab(item.id);
                     onCloseMobile();
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded text-sm font-medium transition-all group ${
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 group ${
                     isActive
-                      ? 'bg-[#202938] text-white shadow-xs'
-                      : 'text-[#9099A5] hover:text-white hover:bg-[#202938]/60'
+                      ? 'bg-white/[0.09] text-white border border-white/[0.1] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),0_2px_10px_rgba(0,0,0,0.2)] font-semibold'
+                      : 'text-white/60 hover:text-white hover:bg-white/[0.05]'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
                     <Icon
                       className={`w-4 h-4 shrink-0 transition-colors ${
-                        isActive ? 'text-white' : 'text-[#9099A5] group-hover:text-white'
+                        isActive ? 'text-emerald-400' : 'text-white/50 group-hover:text-white'
                       }`}
                     />
                     <span className="truncate">{item.label}</span>
                   </div>
 
                   {item.badge !== undefined && (
-                    <span className="bg-[#F2B036]/20 text-[#F2B036] font-space text-xs px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+                    <span className="bg-amber-400/15 text-amber-300 border border-amber-400/25 font-space text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums">
                       {item.badge}
                     </span>
                   )}
-                </button>
+                </Link>
               );
             })}
           </nav>
         </div>
 
         {/* Bottom Section */}
-        <div className="flex flex-col gap-3 pt-3 border-t border-[#2B3340]/60">
+        <div className="flex flex-col gap-3 pt-3 border-t border-white/[0.08]">
           {/* Operator Wallet Profile Card */}
           {operatorWallet?.connected ? (
-            <div className="p-2.5 bg-[#141B26] border border-[#2B3340] rounded-lg flex flex-col gap-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-[#9099A5] font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#4AC777]" />
-                  Operator Profile
-                </span>
-                <span className="font-space text-[10px] text-[#4AC777] font-bold">
+            <div className="p-3 bg-white/[0.035] border border-white/[0.08] rounded-2xl backdrop-blur-md flex flex-col gap-2 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="relative shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-emerald-500/30 to-emerald-400/10 border border-emerald-400/40 flex items-center justify-center text-emerald-300 font-space font-bold text-[10px]">
+                      {operatorWallet.username ? operatorWallet.username.charAt(0).toUpperCase() : 'G'}
+                    </div>
+                    <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#0A0E18]" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-white font-space font-bold text-xs truncate">
+                      {operatorWallet.username ? `@${operatorWallet.username}` : 'Operator'}
+                    </span>
+                    <span className="text-[10px] text-white/50 truncate">
+                      {operatorWallet.role || 'Treasury Operator'}
+                    </span>
+                  </div>
+                </div>
+                <span className="font-space text-[10px] text-emerald-300 font-bold shrink-0 tabular-nums px-1.5 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20">
                   {operatorWallet.balanceXlm || '100.00'} XLM
                 </span>
               </div>
-              <div className="font-mono text-xs text-white font-bold truncate">
-                {operatorWallet.address}
+
+              <div className="flex items-center justify-between text-[10px] text-white/40 pt-1 border-t border-white/[0.06]">
+                <span className="font-mono">
+                  {operatorWallet.address.slice(0, 5)}…{operatorWallet.address.slice(-4)}
+                </span>
+                <button
+                  onClick={() => handleCopyAddr(operatorWallet.address)}
+                  className="hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1"
+                  title="Copy address"
+                >
+                  {copiedAddr ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                  <span>{copiedAddr ? 'Copied' : 'Copy'}</span>
+                </button>
               </div>
             </div>
           ) : (
-            <div className="p-2 bg-[#141B26]/60 border border-[#2B3340]/40 rounded text-center">
-              <span className="text-[11px] text-[#9099A5]">No Wallet Connected</span>
+            <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-2xl text-center">
+              <span className="text-xs text-white/50">Wallet Not Connected</span>
             </div>
           )}
-
-          {/* Quick Simulation Trigger */}
-          <button
-            onClick={() => {
-              onOpenSimulateModal();
-              onCloseMobile();
-            }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#202938] hover:bg-[#232E3F] border border-[#2B3340] text-xs font-medium text-[#4AC777] rounded transition-colors group cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#4AC777] group-hover:scale-110 transition-transform" />
-            <span>Simulate Agent Req</span>
-          </button>
 
           {/* Landing Link & Network Badge */}
           <div className="flex items-center justify-between px-1">
             <button
               onClick={() => {
-                onSelectTab('landing');
+                if (onSelectTab) onSelectTab('landing');
                 onCloseMobile();
               }}
-              className="text-[11px] text-[#9099A5] hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+              className="text-xs text-white/50 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
             >
               <span>Landing Page</span>
               <ChevronRight className="w-3 h-3" />
             </button>
 
             {/* Stellar Testnet Pill */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-[#F2B036]/15 rounded border border-[#F2B036]/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F2B036] shrink-0" />
-              <span className="font-space text-[10px] font-medium text-[#F2B036] tracking-tight whitespace-nowrap">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-400/10 rounded-full border border-amber-400/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              <span className="font-space text-[10px] font-medium text-amber-300 tracking-tight whitespace-nowrap">
                 Stellar Testnet
               </span>
             </div>

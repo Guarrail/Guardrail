@@ -106,4 +106,9 @@ export interface OperatorWalletState {
   ownershipVerified: boolean;
   balanceXlm?: string;
   walletName?: string;
+  username?: string;
+  displayName?: string;
+  role?: string;
+  avatar?: string;
+  email?: string;
 }

@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
 from apps.accounts.models import Operator
-from apps.core.stellar import get_cosigner_keypair
+from apps.core.stellar import get_cosigner_keypair, generate_new_stellar_keypair
 from .models import ControlledWallet
 from .serializers import ControlledWalletSerializer, RegisterWalletSerializer
 
@@ -19,7 +19,13 @@ class ControlledWalletViewSet(viewsets.ModelViewSet):
     serializer_class = ControlledWalletSerializer
 
     def create(self, request, *args, **kwargs):
-        serializer = RegisterWalletSerializer(data=request.data)
+        payload = request.data.copy()
+        # If address is not provided or blank, generate a valid Stellar keypair
+        if not payload.get("address"):
+            generated_address, _ = generate_new_stellar_keypair()
+            payload["address"] = generated_address
+
+        serializer = RegisterWalletSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -30,8 +36,24 @@ class ControlledWalletViewSet(viewsets.ModelViewSet):
         if not data.get("cosigner_address"):
             data["cosigner_address"] = get_cosigner_keypair().public_key
 
-        wallet = ControlledWallet.objects.create(operator=operator, **data)
+        wallet, _ = ControlledWallet.objects.update_or_create(
+            address=data["address"],
+            defaults={"operator": operator, **data},
+        )
         return Response(ControlledWalletSerializer(wallet).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        description="Generate a fresh, cryptographically valid Stellar Testnet vault address for the controlled wallet.",
+        responses={200: dict},
+    )
+    @action(detail=False, methods=["get", "post"], url_path="generate-address")
+    def generate_address(self, request):
+        public_key, _ = generate_new_stellar_keypair()
+        return Response({
+            "address": public_key,
+            "network": "TESTNET",
+            "message": "Fresh cryptographically valid Stellar vault address generated.",
+        })
 
     @extend_schema(
         description="Verify multisig security compliance and return detailed audit assessment.",

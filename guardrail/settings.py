@@ -75,8 +75,17 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "guardrail.wsgi.application"
 
-# Database Configuration: PostgreSQL for Docker / Production, SQLite fallback for local development & unit tests
-if os.getenv("DB_ENGINE") == "django.db.backends.postgresql" and os.getenv("DB_NAME"):
+import sys
+
+# Database Configuration: In-memory SQLite for test suites, PostgreSQL for Docker / Production
+if "pytest" in sys.modules or "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+elif os.getenv("DB_ENGINE") == "django.db.backends.postgresql" and os.getenv("DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",

@@ -76,8 +76,14 @@ class OperatorVerifyView(APIView):
         if not operator.current_nonce:
             return Response({"error": "No active challenge nonce. Please request a new challenge."}, status=status.HTTP_400_BAD_REQUEST)
 
-        challenge_text = f"GuardRail Auth Challenge for {address} | Nonce: {operator.current_nonce} | Timestamp: {operator.nonce_created_at.isoformat()}"
-        challenge_bytes = challenge_text.encode("utf-8")
+        candidate_challenges = []
+        provided_challenge = serializer.validated_data.get("challenge")
+        if provided_challenge:
+            candidate_challenges.append(provided_challenge)
+
+        default_challenge = f"GuardRail Auth Challenge for {address} | Nonce: {operator.current_nonce} | Timestamp: {operator.nonce_created_at.isoformat()}"
+        if default_challenge not in candidate_challenges:
+            candidate_challenges.append(default_challenge)
 
         # Verify signature
         try:
@@ -86,23 +92,66 @@ class OperatorVerifyView(APIView):
             if signature_str.startswith("mock_sig_") or signature_str == "test_signature":
                 is_valid = True
             else:
+                sig_bytes = None
                 try:
                     sig_bytes = base64.b64decode(signature_str)
                 except Exception:
-                    sig_bytes = bytes.fromhex(signature_str)
-                kp.verify(challenge_bytes, sig_bytes)
-                is_valid = True
+                    pass
+
+                if not sig_bytes or len(sig_bytes) != 64:
+                    try:
+                        sig_bytes = bytes.fromhex(signature_str)
+                    except Exception:
+                        pass
+
+                if not sig_bytes:
+                    sig_bytes = base64.b64decode(signature_str)
+
+                is_valid = False
+                last_err = None
+
+                for ch in candidate_challenges:
+                    ch_bytes = ch.encode("utf-8")
+                    # 1. SEP-53 standard off-chain message verification (Freighter, StellarWalletsKit)
+                    try:
+                        kp.verify_message(ch, sig_bytes)
+                        is_valid = True
+                        break
+                    except Exception as e:
+                        last_err = e
+
+                    # 2. Raw Ed25519 payload verification
+                    try:
+                        kp.verify(ch_bytes, sig_bytes)
+                        is_valid = True
+                        break
+                    except Exception as e:
+                        last_err = e
+
+                    # 3. Pre-hashed SHA-256 payload verification
+                    try:
+                        from stellar_sdk.utils import sha256
+                        kp.verify(sha256(ch_bytes), sig_bytes)
+                        is_valid = True
+                        break
+                    except Exception as e:
+                        last_err = e
+
+                if not is_valid:
+                    raise last_err or Exception("Signature verification failed.")
         except Exception as e:
             return Response({"error": f"Cryptographic signature verification failed: {str(e)}"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        if not is_valid:
-            return Response({"error": "Invalid signature."}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Clear used nonce and mark verified
         operator.is_verified = True
         operator.current_nonce = ""
         operator.last_login = get_utc_now()
-        operator.save(update_fields=["is_verified", "current_nonce", "last_login"])
+        update_fields = ["is_verified", "current_nonce", "last_login"]
+        alias = serializer.validated_data.get("alias")
+        if alias:
+            operator.alias = alias
+            update_fields.append("alias")
+        operator.save(update_fields=update_fields)
 
         return Response(
             {
@@ -114,7 +163,7 @@ class OperatorVerifyView(APIView):
 
 
 class OperatorMeView(APIView):
-    """Retrieve current operator details."""
+    """Retrieve or update current operator details."""
 
     @extend_schema(
         responses={200: OperatorSerializer},
@@ -128,5 +177,28 @@ class OperatorMeView(APIView):
         try:
             operator = Operator.objects.get(address=address)
             return Response(OperatorSerializer(operator).data)
+        except Operator.DoesNotExist:
+            return Response({"error": "Operator not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    @extend_schema(
+        request=OperatorSerializer,
+        responses={200: OperatorSerializer},
+        description="Update operator profile details (e.g. alias/username).",
+    )
+    def patch(self, request):
+        address = (
+            request.data.get("address")
+            or request.query_params.get("address")
+            or request.headers.get("X-Operator-Address")
+        )
+        if not address:
+            return Response({"error": "Operator address must be provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            operator = Operator.objects.get(address=address)
+            serializer = OperatorSerializer(operator, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
         except Operator.DoesNotExist:
             return Response({"error": "Operator not found."}, status=status.HTTP_404_NOT_FOUND)

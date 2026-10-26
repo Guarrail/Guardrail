@@ -164,17 +164,28 @@ export interface ApiSmartContractStatus {
 }
 
 export const api = {
-  // --- Auth / Wallet Ownership ---
+  // --- Auth / Wallet Ownership & Profile ---
   getChallenge: (address: string) =>
     fetchJson<{ address: string; challenge: string; nonce: string }>('/api/v1/auth/challenge/', {
       method: 'POST',
       body: JSON.stringify({ address }),
     }),
 
-  verifyChallenge: (address: string, signature: string) =>
-    fetchJson<{ message: string; operator: { address: string; is_verified: boolean } }>('/api/v1/auth/verify/', {
+  verifyChallenge: (address: string, signature: string, alias?: string, challenge?: string) =>
+    fetchJson<{ message: string; operator: { address: string; alias?: string; is_verified: boolean } }>('/api/v1/auth/verify/', {
       method: 'POST',
-      body: JSON.stringify({ address, signature }),
+      body: JSON.stringify({ address, signature, alias, challenge }),
+    }),
+
+  getOperatorProfile: (address: string) =>
+    fetchJson<{ id: string; address: string; alias: string; is_verified: boolean; last_login: string | null }>(
+      `/api/v1/accounts/me/?address=${encodeURIComponent(address)}`
+    ),
+
+  updateOperatorProfile: (data: { address: string; alias?: string }) =>
+    fetchJson<{ id: string; address: string; alias: string; is_verified: boolean }>('/api/v1/accounts/me/', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     }),
 
   // --- Dashboard & Coordinator Stats ---
@@ -265,8 +276,11 @@ export const api = {
   // --- Controlled Wallets ---
   getWallets: () => fetchJson<ApiControlledWallet[] | { results: ApiControlledWallet[] }>('/api/v1/wallets/'),
 
+  generateVaultAddress: () =>
+    fetchJson<{ address: string; network: string; message: string }>('/api/v1/wallets/generate-address/'),
+
   createWallet: (data: {
-    address: string;
+    address?: string;
     name: string;
     operator_address: string;
     network?: string;

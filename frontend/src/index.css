@@ -1,46 +1,83 @@
 @import "tailwindcss";
 
 @theme {
-  --font-space: 'Space Grotesk', sans-serif;
-  --font-manrope: 'Manrope', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-  --color-guard-bg: #09101A;
-  --color-guard-card: #202938;
-  --color-guard-sidebar: #1D2430;
-  --color-guard-active: #232E3F;
-  --color-guard-border: #2B3340;
-  --color-guard-green: #4AC777;
-  --color-guard-amber: #F2B036;
-  --color-guard-red: #ED4A49;
-  --color-guard-muted: #9099A5;
+  --font-space: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-manrope: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --color-guard-bg: #080C14;
+  --color-guard-card: #111724;
+  --color-guard-sidebar: #0C111C;
+  --color-guard-active: #172033;
+  --color-guard-border: rgba(255, 255, 255, 0.08);
+  --color-guard-green: #30D158;
+  --color-guard-amber: #FF9F0A;
+  --color-guard-red: #FF453A;
+  --color-guard-blue: #0A84FF;
+  --color-guard-muted: rgba(255, 255, 255, 0.6);
+}
+
+:root {
+  color-scheme: dark;
 }
 
 body {
-  font-family: 'Manrope', sans-serif;
-  background-color: #09101A;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #080C14;
   color: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .font-space {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .font-manrope {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Custom crisp dark scrollbar */
+/* Apple-style frosted glass utilities */
+.apple-glass {
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+.apple-glass-card {
+  background: rgba(18, 24, 38, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.apple-glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.apple-pill {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Custom subtle dark scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #09101A;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2B3340;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4AC777;
+  background: rgba(255, 255, 255, 0.3);
 }

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from rest_framework.routers import DefaultRouter
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -63,6 +64,9 @@ router.register(r"coordinator/permits", OperatorPermitViewSet, basename="coordin
 router.register(r"audit/logs", AuditLogViewSet, basename="audit-log")
 
 urlpatterns = [
+    # Root redirect to Swagger Docs
+    path("", RedirectView.as_view(url="/api/docs/", permanent=False), name="root-redirect"),
+
     # Admin Panel
     path("admin/", admin.site.urls),
 
@@ -80,6 +84,7 @@ urlpatterns = [
     path("api/v1/auth/challenge/", OperatorChallengeView.as_view(), name="auth-challenge"),
     path("api/v1/auth/verify/", OperatorVerifyView.as_view(), name="auth-verify"),
     path("api/v1/auth/me/", OperatorMeView.as_view(), name="auth-me"),
+    path("api/v1/accounts/me/", OperatorMeView.as_view(), name="accounts-me"),
 
     # AI Agent Payment Proposal Endpoints (Authenticated via X-Agent-Key)
     path("api/v1/agent/requests/", AgentSubmitRequestView.as_view(), name="agent-submit-request"),

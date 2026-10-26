@@ -45,6 +45,7 @@ class ControlledWalletSerializer(serializers.ModelSerializer):
 
 class RegisterWalletSerializer(serializers.ModelSerializer):
     operator_address = serializers.CharField(write_only=True, max_length=56)
+    address = serializers.CharField(max_length=56, required=False, allow_blank=True)
 
     class Meta:
         model = ControlledWallet
@@ -64,9 +65,14 @@ class RegisterWalletSerializer(serializers.ModelSerializer):
             "asset_code",
         ]
 
-    def validate_address(self, value):
+    def validate_operator_address(self, value):
         if not is_valid_stellar_address(value):
-            raise serializers.ValidationError("Invalid Stellar address.")
+            raise serializers.ValidationError("Invalid operator Stellar address format.")
+        return value
+
+    def validate_address(self, value):
+        if value and not is_valid_stellar_address(value):
+            raise serializers.ValidationError("Invalid Stellar address format. Must be a 56-character public key starting with 'G'.")
         return value
 
     def validate_agent_signer_address(self, value):

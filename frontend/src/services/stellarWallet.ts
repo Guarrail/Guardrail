@@ -2,7 +2,7 @@ import { StellarWalletsKit, Networks } from '@creit.tech/stellar-wallets-kit';
 import { FreighterModule } from '@creit.tech/stellar-wallets-kit/modules/freighter';
 import { xBullModule } from '@creit.tech/stellar-wallets-kit/modules/xbull';
 import { AlbedoModule } from '@creit.tech/stellar-wallets-kit/modules/albedo';
-import { isConnected, getPublicKey, signMessage } from '@stellar/freighter-api';
+import { isConnected, getAddress, signMessage } from '@stellar/freighter-api';
 
 export interface ConnectedWalletInfo {
   address: string;
@@ -68,13 +68,8 @@ export async function connectOfficialStellarWallet(): Promise<ConnectedWalletInf
       walletName: 'Stellar Connected Wallet',
     };
   } catch (err) {
-    console.warn('Stellar wallet modal closed or unsupported in environment. Using Developer Testnet Keypair fallback:', err);
-    const fallbackAddress = 'GB4KGM6UEOARGKYWQLRJQOZXBKBCOLBUGXIGQLTM7YCMGTSFL5UGKKPX';
-    return {
-      address: fallbackAddress,
-      balanceXlm: '100.00',
-      walletName: 'Stellar Testnet Keypair',
-    };
+    console.error('Stellar wallet connection error:', err);
+    throw err instanceof Error ? err : new Error('Wallet connection was closed or rejected.');
   }
 }
 
@@ -98,28 +93,56 @@ export async function signChallengeWithWallet(challenge: string, address: string
 
   try {
     const res = await StellarWalletsKit.signMessage(challenge, { address });
-    if (res?.signedMessage) {
-      return res.signedMessage;
+    if (typeof res === 'string' && res) {
+      return res;
+    }
+    if (res && typeof res === 'object') {
+      const resObj = res as Record<string, unknown>;
+      const sig = resObj.signedMessage || resObj.signature || resObj.signedPayload || resObj.data;
+      if (typeof sig === 'string' && sig) return sig;
+      if (sig instanceof Uint8Array || Array.isArray(sig)) {
+        return btoa(String.fromCharCode(...new Uint8Array(sig as any)));
+      }
     }
   } catch (kitErr) {
-    console.warn('StellarWalletsKit signMessage not available, trying Freighter API directly:', kitErr);
+    console.warn('StellarWalletsKit signMessage notice, trying Freighter directly if present:', kitErr);
   }
 
   try {
-    const hasFreighter = await isConnected();
+    const connectedRes = await isConnected();
+    const hasFreighter = typeof connectedRes === 'boolean' ? connectedRes : (connectedRes as any)?.isConnected;
     if (hasFreighter) {
-      const pubKey = await getPublicKey();
+      const addrRes = await getAddress();
+      const pubKey = typeof addrRes === 'string' ? addrRes : (addrRes as any)?.address;
       if (pubKey === address) {
         const signed = await signMessage(challenge);
-        return signed;
+        if (typeof signed === 'string' && signed) {
+          return signed;
+        }
+        if (signed && typeof signed === 'object') {
+          const resObj = signed as Record<string, unknown>;
+          const sig = resObj.signedMessage || resObj.signature || resObj.signedPayload || resObj.data;
+          if (typeof sig === 'string' && sig) return sig;
+          if (sig instanceof Uint8Array || Array.isArray(sig)) {
+            return btoa(String.fromCharCode(...new Uint8Array(sig as any)));
+          }
+        }
       }
     }
   } catch (e) {
     console.warn('Freighter direct signing was not available or declined:', e);
   }
 
-  // Fallback signature for testnet developer environments
-  return `test_signature_for_${address.slice(0, 8)}`;
+  throw new Error('Cryptographic signature was not returned by the wallet. Please approve the signing request in your Stellar wallet extension.');
+}
+
+export async function disconnectOfficialStellarWallet(): Promise<void> {
+  initStellarWalletsKit();
+  try {
+    await StellarWalletsKit.disconnect();
+  } catch (err) {
+    console.warn('Disconnect notice:', err);
+  }
 }
 
 export { StellarWalletsKit };

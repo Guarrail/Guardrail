@@ -34,14 +34,55 @@ def test_operator_challenge_and_verification_flow(api_client):
     assert "challenge" in ch_res.data
     assert "nonce" in ch_res.data
 
-    # Step 2: Verify with test signature
+    # Step 2: Verify with test signature and alias
     v_res = api_client.post(
         "/api/v1/auth/verify/",
-        {"address": TEST_OPERATOR_ADDRESS, "signature": "test_signature"},
+        {"address": TEST_OPERATOR_ADDRESS, "signature": "test_signature", "alias": "alice_treasury"},
         format="json",
     )
     assert v_res.status_code == 200
     assert v_res.data["operator"]["is_verified"] is True
+    assert v_res.data["operator"]["alias"] == "alice_treasury"
+
+    # Step 3: GET /api/v1/auth/me/
+    me_res = api_client.get(f"/api/v1/auth/me/?address={TEST_OPERATOR_ADDRESS}")
+    assert me_res.status_code == 200
+    assert me_res.data["alias"] == "alice_treasury"
+    assert me_res.data["is_verified"] is True
+
+    # Step 4: PATCH /api/v1/auth/me/ to update profile
+    patch_res = api_client.patch(
+        "/api/v1/auth/me/",
+        {"address": TEST_OPERATOR_ADDRESS, "alias": "alice_prime"},
+        format="json",
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.data["alias"] == "alice_prime"
+
+
+@pytest.mark.django_db
+def test_wallet_generate_address_and_auto_create(api_client):
+    # Test generate address endpoint
+    gen_res = api_client.get("/api/v1/wallets/generate-address/")
+    assert gen_res.status_code == 200
+    assert "address" in gen_res.data
+    assert len(gen_res.data["address"]) == 56
+    assert gen_res.data["address"].startswith("G")
+
+    # Test create wallet with auto-generated address (empty address passed)
+    create_res = api_client.post(
+        "/api/v1/wallets/",
+        {
+            "operator_address": TEST_OPERATOR_ADDRESS,
+            "name": "Auto Protected Vault",
+            "balance": "100.0000000",
+        },
+        format="json",
+    )
+    assert create_res.status_code == 201
+    assert "id" in create_res.data
+    assert len(create_res.data["address"]) == 56
+    assert create_res.data["address"].startswith("G")
 
 
 @pytest.mark.django_db

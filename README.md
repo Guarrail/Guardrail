@@ -146,8 +146,9 @@ Body:
 ```http
 # Operator Authentication (SEP-10 style)
 POST   /api/v1/auth/challenge/            # Request cryptographic challenge nonce
-POST   /api/v1/auth/verify/               # Verify Ed25519 signature & login
+POST   /api/v1/auth/verify/               # Verify Ed25519 signature & login (persists alias)
 GET    /api/v1/auth/me/                   # Current operator profile
+PATCH  /api/v1/auth/me/                   # Update operator profile (alias / username)
 
 # Controlled Wallets & Security Boundary
 GET    /api/v1/wallets/                   # List controlled wallets

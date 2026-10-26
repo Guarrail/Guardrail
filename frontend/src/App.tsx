@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import {
   TabView,
   AgentRequest,
@@ -21,6 +22,8 @@ import { AuditLogView } from './components/AuditLogView';
 import { SettingsView } from './components/SettingsView';
 import { RequestDetailModal } from './components/RequestDetailModal';
 import { SimulateRequestModal } from './components/SimulateRequestModal';
+import { AuthModal } from './components/AuthModal';
+import { LoginPage } from './components/LoginPage';
 import {
   LayoutDashboard,
   FileText,
@@ -29,26 +32,61 @@ import {
   Wallet,
 } from 'lucide-react';
 
-const DEFAULT_OPERATOR: OperatorWalletState = {
-  connected: true,
-  address: 'GB4KGM6UEOARGKYWQLRJQOZXBKBCOLBUGXIGQLTM7YCMGTSFL5UGKKPX',
-  ownershipVerified: true,
-  balanceXlm: '100.00',
-  walletName: 'Stellar Testnet Operator',
+const getStoredOperator = (): OperatorWalletState => {
+  try {
+    const raw = localStorage.getItem('guardrail_operator_profile');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.address && parsed.ownershipVerified) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read stored operator:', e);
+  }
+  return {
+    connected: false,
+    address: '',
+    ownershipVerified: false,
+    balanceXlm: '0.00',
+    username: '',
+    displayName: '',
+    role: '',
+    avatar: 'shield',
+  };
 };
 
+const DEFAULT_OPERATOR: OperatorWalletState = getStoredOperator();
+
 const DEFAULT_CONTROLLED: ControlledWalletState = {
-  address: 'GBVYF7JVPDVWOHV6V334O3DUK2NO76F4ML23BNYPQ4BXDGN7ZCVGEW7K',
+  address: '',
   network: 'Stellar Testnet',
-  balanceUsdc: 500.0,
-  balanceXlm: '500.00',
-  ownershipVerified: true,
+  balanceUsdc: 0.0,
+  balanceXlm: '0.00',
+  ownershipVerified: false,
   currentSignersCount: 3,
   currentThreshold: 2,
   proposedThreshold: 2,
   isPaused: false,
   smartContractConnected: true,
   smartContractAddress: 'CDEMOGUARDRAILCONTRACTTESTNET1234567890ABCDEFGH',
+};
+
+interface ProtectedRouteProps {
+  isAuth: boolean;
+  children: React.ReactElement;
+  redirectTo?: string;
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  isAuth,
+  children,
+  redirectTo = '/login',
+}) => {
+  if (!isAuth) {
+    return <Navigate to={redirectTo} replace />;
+  }
+  return children;
 };
 
 function mapBackendRequest(r: ApiTransactionRequest): AgentRequest {
@@ -138,7 +176,8 @@ function mapBackendRequest(r: ApiTransactionRequest): AgentRequest {
 }
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<TabView>('dashboard');
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
 
@@ -178,10 +217,21 @@ export default function App() {
   });
 
   const [operatorWallet, setOperatorWallet] = useState<OperatorWalletState>(() => {
-    const saved = localStorage.getItem('guardrail_operator_wallet');
-    return saved ? JSON.parse(saved) : DEFAULT_OPERATOR;
+    const saved = localStorage.getItem('guardrail_operator_profile');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.address && parsed.ownershipVerified) {
+          return parsed;
+        }
+      } catch (e) {
+        console.warn('Error reading saved session:', e);
+      }
+    }
+    return DEFAULT_OPERATOR;
   });
 
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [controlledWallet, setControlledWallet] = useState<ControlledWalletState>(DEFAULT_CONTROLLED);
   const [signers, setSigners] = useState<WalletSigner[]>([
     {
@@ -209,13 +259,36 @@ export default function App() {
       status: 'active',
     },
   ]);
-
   const [selectedRequest, setSelectedRequest] = useState<AgentRequest | null>(null);
 
-  // Save operator wallet changes to localStorage
+  // Validate session against backend API on mount
   useEffect(() => {
-    localStorage.setItem('guardrail_operator_wallet', JSON.stringify(operatorWallet));
-  }, [operatorWallet]);
+    if (operatorWallet.connected && operatorWallet.address) {
+      api
+        .getOperatorProfile(operatorWallet.address)
+        .then((profile) => {
+          if (profile && profile.is_verified) {
+            setOperatorWallet((prev) => ({
+              ...prev,
+              username: profile.alias || prev.username,
+              displayName: profile.alias || prev.displayName,
+              ownershipVerified: true,
+            }));
+          } else {
+            // Unverified on backend: reset session
+            setOperatorWallet(DEFAULT_OPERATOR);
+            localStorage.removeItem('guardrail_operator_profile');
+            localStorage.removeItem('guardrail_operator_wallet');
+          }
+        })
+        .catch(() => {
+          // Address not in backend: reset session
+          setOperatorWallet(DEFAULT_OPERATOR);
+          localStorage.removeItem('guardrail_operator_profile');
+          localStorage.removeItem('guardrail_operator_wallet');
+        });
+    }
+  }, []);
 
   // Load live data from the backend coordinator API
   const refreshBackendData = useCallback(async () => {
@@ -369,194 +442,273 @@ export default function App() {
     await refreshBackendData();
   };
 
-  // If user is on the Landing Page
-  if (currentTab === 'landing') {
-    return (
-      <LandingPage
-        onLaunchApp={() => setCurrentTab('dashboard')}
-        onOpenOnboarding={() => setCurrentTab('onboarding')}
-      />
-    );
-  }
-
-  // If user is in the Onboarding Wizard
-  if (currentTab === 'onboarding') {
-    return (
-      <OnboardingView
-        operatorWallet={operatorWallet}
-        setOperatorWallet={setOperatorWallet}
-        controlledWallet={controlledWallet}
-        setControlledWallet={setControlledWallet}
-        onComplete={() => setCurrentTab('dashboard')}
-        onExit={() => setCurrentTab('dashboard')}
-      />
-    );
-  }
-
   const pendingRequestsCount = requests.filter((r) => r.status === 'Pending').length;
 
-  return (
-    <div className="min-h-screen bg-[#09101A] text-white flex flex-col lg:flex-row font-manrope selection:bg-[#4AC777]/30 selection:text-white">
-      {/* Sidebar for Desktop & Mobile Drawer */}
-      <Sidebar
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        isOpenMobile={isMobileSidebarOpen}
-        onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        pendingCount={pendingRequestsCount}
-        onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
-        operatorWallet={operatorWallet}
-      />
+  const isOperatorAuthenticated = Boolean(
+    operatorWallet.connected &&
+    operatorWallet.address &&
+    operatorWallet.ownershipVerified
+  );
 
-      {/* Main Content Area */}
-      <div className="flex-1 lg:pl-60 flex flex-col min-h-screen">
-        {/* App Header with Wallet Profile and Live Balance */}
-        <Header
-          currentTab={currentTab}
-          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
-          onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
-          controlledWallet={controlledWallet}
-          operatorWallet={operatorWallet}
-          setOperatorWallet={setOperatorWallet}
-          onSelectTab={setCurrentTab}
+  return (
+    <>
+      <Routes>
+        {/* 1. Landing Page (Individual page at URL '/') */}
+        <Route
+          path="/"
+          element={
+            <LandingPage
+              onLaunchApp={() => navigate(isOperatorAuthenticated ? '/dashboard' : '/login')}
+              onOpenOnboarding={() => navigate('/signup')}
+              onOpenAuthModal={() => navigate('/login')}
+              operatorWallet={operatorWallet}
+              setOperatorWallet={setOperatorWallet}
+            />
+          }
         />
 
-        {/* Tab Content */}
-        <main className="flex-1 pb-20 lg:pb-8">
-          {currentTab === 'dashboard' && (
-            <DashboardView
-              requests={requests}
-              policyConfig={policyConfig}
-              controlledWallet={controlledWallet}
-              onSelectTab={setCurrentTab}
-              onSelectRequest={setSelectedRequest}
-              onApproveQuick={handleApproveQuick}
-              onRejectQuick={handleRejectQuick}
-              onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
-            />
-          )}
-
-          {currentTab === 'requests' && (
-            <RequestsView
-              requests={requests}
-              onSelectRequest={setSelectedRequest}
-              onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
-            />
-          )}
-
-          {currentTab === 'policies' && (
-            <PolicyConfigView
-              policyConfig={policyConfig}
-              setPolicyConfig={setPolicyConfig}
-            />
-          )}
-
-          {currentTab === 'wallet-security' && (
-            <WalletSecurityView
-              controlledWallet={controlledWallet}
-              signers={signers}
-              onApplyConfig={handleApplyMultisigConfig}
-            />
-          )}
-
-          {currentTab === 'ai-agent' && (
-            <AIAgentView
-              controlledWallet={controlledWallet}
-              onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
-            />
-          )}
-
-          {currentTab === 'audit-log' && (
-            <AuditLogView
-              requests={requests}
-              onSelectRequest={setSelectedRequest}
-            />
-          )}
-
-          {currentTab === 'settings' && (
-            <SettingsView
+        {/* 2. Login Page at URL '/login' */}
+        <Route
+          path="/login"
+          element={
+            <LoginPage
               operatorWallet={operatorWallet}
+              setOperatorWallet={setOperatorWallet}
+              onLoginSuccess={() => {
+                refreshBackendData();
+                navigate('/dashboard');
+              }}
+            />
+          }
+        />
+
+        {/* 3. 5-Step Signup Flow at URL '/signup' and '/onboarding' */}
+        <Route
+          path="/signup"
+          element={
+            <OnboardingView
+              operatorWallet={operatorWallet}
+              setOperatorWallet={setOperatorWallet}
               controlledWallet={controlledWallet}
               setControlledWallet={setControlledWallet}
-              onResetData={handleResetData}
+              onComplete={() => {
+                refreshBackendData();
+                navigate('/dashboard');
+              }}
+              onExit={() => navigate('/')}
             />
-          )}
-        </main>
+          }
+        />
+        <Route path="/onboarding" element={<Navigate to="/signup" replace />} />
 
-        {/* Mobile Bottom Navigation Bar */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#1D2430]/95 backdrop-blur-md border-t border-[#2B3340] px-2 py-1.5 flex items-center justify-around">
-          <button
-            onClick={() => setCurrentTab('dashboard')}
-            className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
-              currentTab === 'dashboard' ? 'text-[#4AC777]' : 'text-[#9099A5]'
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            <span>Dash</span>
-          </button>
+        {/* 4. Protected Dashboard and Sub-Feature Pages */}
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute isAuth={isOperatorAuthenticated} redirectTo="/login">
+              <div className="min-h-screen bg-[#09101A] text-white flex flex-col lg:flex-row font-manrope selection:bg-[#4AC777]/30 selection:text-white">
+                {/* Sidebar for Desktop & Mobile Drawer */}
+                <Sidebar
+                  isOpenMobile={isMobileSidebarOpen}
+                  onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                  pendingCount={pendingRequestsCount}
+                  onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                  operatorWallet={operatorWallet}
+                />
 
-          <button
-            onClick={() => setCurrentTab('requests')}
-            className={`relative flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
-              currentTab === 'requests' ? 'text-[#4AC777]' : 'text-[#9099A5]'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>Requests</span>
-            {pendingRequestsCount > 0 && (
-              <span className="absolute top-1 right-2 w-1.5 h-1.5 rounded-full bg-[#F2B036]" />
-            )}
-          </button>
+                {/* Main Content Area */}
+                <div className="flex-1 lg:pl-60 flex flex-col min-h-screen">
+                  {/* App Header with Wallet Profile and Live Balance */}
+                  <Header
+                    onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+                    onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                    onOpenAuthModal={() => navigate('/login')}
+                    controlledWallet={controlledWallet}
+                    operatorWallet={operatorWallet}
+                    setOperatorWallet={setOperatorWallet}
+                    onSelectTab={(tab) => navigate(tab === 'ai-agent' ? '/ai-agents' : `/${tab}`)}
+                  />
 
-          <button
-            onClick={() => setCurrentTab('policies')}
-            className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
-              currentTab === 'policies' ? 'text-[#4AC777]' : 'text-[#9099A5]'
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            <span>Policies</span>
-          </button>
+              {/* Dynamic Pages Rendered at Individual URLs */}
+              <main className="flex-1 pb-20 lg:pb-8">
+                <Routes>
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <DashboardView
+                        requests={requests}
+                        policyConfig={policyConfig}
+                        controlledWallet={controlledWallet}
+                        onSelectTab={(tab) => navigate(tab === 'ai-agent' ? '/ai-agents' : `/${tab}`)}
+                        onSelectRequest={setSelectedRequest}
+                        onApproveQuick={handleApproveQuick}
+                        onRejectQuick={handleRejectQuick}
+                        onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                      />
+                    }
+                  />
 
-          <button
-            onClick={() => setCurrentTab('ai-agent')}
-            className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
-              currentTab === 'ai-agent' ? 'text-[#4AC777]' : 'text-[#9099A5]'
-            }`}
-          >
-            <Bot className="w-4 h-4" />
-            <span>Agent</span>
-          </button>
+                  <Route
+                    path="/requests"
+                    element={
+                      <RequestsView
+                        requests={requests}
+                        onSelectRequest={setSelectedRequest}
+                        onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                      />
+                    }
+                  />
 
-          <button
-            onClick={() => setCurrentTab('wallet-security')}
-            className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
-              currentTab === 'wallet-security' ? 'text-[#4AC777]' : 'text-[#9099A5]'
-            }`}
-          >
-            <Wallet className="w-4 h-4" />
-            <span>Security</span>
-          </button>
-        </div>
-      </div>
+                  <Route
+                    path="/policies"
+                    element={
+                      <PolicyConfigView
+                        policyConfig={policyConfig}
+                        setPolicyConfig={setPolicyConfig}
+                      />
+                    }
+                  />
 
-      {/* Request Details Modal */}
-      <RequestDetailModal
-        request={selectedRequest}
-        onClose={() => setSelectedRequest(null)}
-        onApproveSuccess={handleApproveSuccess}
-        onRejectRequest={handleRejectRequest}
-        operatorAddress={operatorWallet.address}
+                  <Route
+                    path="/wallet-security"
+                    element={
+                      <WalletSecurityView
+                        controlledWallet={controlledWallet}
+                        signers={signers}
+                        onApplyConfig={handleApplyMultisigConfig}
+                      />
+                    }
+                  />
+
+                  <Route
+                    path="/ai-agents"
+                    element={
+                      <AIAgentView
+                        controlledWallet={controlledWallet}
+                        onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                      />
+                    }
+                  />
+                  <Route path="/ai-agent" element={<Navigate to="/ai-agents" replace />} />
+
+                  <Route
+                    path="/audit-log"
+                    element={
+                      <AuditLogView
+                        requests={requests}
+                        onSelectRequest={setSelectedRequest}
+                      />
+                    }
+                  />
+
+                  <Route
+                    path="/settings"
+                    element={
+                      <SettingsView
+                        operatorWallet={operatorWallet}
+                        controlledWallet={controlledWallet}
+                        setControlledWallet={setControlledWallet}
+                        onResetData={handleResetData}
+                      />
+                    }
+                  />
+
+                  {/* Fallback unknown paths to dashboard */}
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </main>
+
+              {/* Mobile Bottom Navigation Bar */}
+              <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#1D2430]/95 backdrop-blur-md border-t border-[#2B3340] px-2 py-1.5 flex items-center justify-around">
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
+                    location.pathname === '/dashboard' ? 'text-[#4AC777]' : 'text-[#9099A5]'
+                  }`}
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Dash</span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/requests')}
+                  className={`relative flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
+                    location.pathname === '/requests' ? 'text-[#4AC777]' : 'text-[#9099A5]'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Requests</span>
+                  {pendingRequestsCount > 0 && (
+                    <span className="absolute top-1 right-2 w-1.5 h-1.5 rounded-full bg-[#F2B036]" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => navigate('/policies')}
+                  className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
+                    location.pathname === '/policies' ? 'text-[#4AC777]' : 'text-[#9099A5]'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Policies</span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/ai-agents')}
+                  className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
+                    location.pathname === '/ai-agents' || location.pathname === '/ai-agent'
+                      ? 'text-[#4AC777]'
+                      : 'text-[#9099A5]'
+                  }`}
+                >
+                  <Bot className="w-4 h-4" />
+                  <span>Agent</span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/wallet-security')}
+                  className={`flex flex-col items-center gap-1 p-1.5 rounded text-[10px] font-medium transition-colors ${
+                    location.pathname === '/wallet-security' ? 'text-[#4AC777]' : 'text-[#9099A5]'
+                  }`}
+                >
+                  <Wallet className="w-4 h-4" />
+                  <span>Security</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Request Details Modal */}
+            <RequestDetailModal
+              request={selectedRequest}
+              onClose={() => setSelectedRequest(null)}
+              onApproveSuccess={handleApproveSuccess}
+              onRejectRequest={handleRejectRequest}
+              operatorAddress={operatorWallet.address}
+            />
+
+            {/* Live Request Simulator Modal */}
+            <SimulateRequestModal
+              isOpen={isSimulateModalOpen}
+              onClose={() => setIsSimulateModalOpen(false)}
+              policyConfig={policyConfig}
+              controlledWallet={controlledWallet}
+              onAddRequest={handleAddSimulatedRequest}
+            />
+            </div>
+          </ProtectedRoute>
+        }
       />
+    </Routes>
 
-      {/* Live Request Simulator Modal */}
-      <SimulateRequestModal
-        isOpen={isSimulateModalOpen}
-        onClose={() => setIsSimulateModalOpen(false)}
-        policyConfig={policyConfig}
-        controlledWallet={controlledWallet}
-        onAddRequest={handleAddSimulatedRequest}
+      {/* Official Stellar Wallets Kit Login & Signup Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(authOp) => {
+          setOperatorWallet(authOp);
+          refreshBackendData();
+        }}
       />
-    </div>
+    </>
   );
 }
