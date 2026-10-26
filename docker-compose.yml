@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: guardrail_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-guardrail_db}
+      POSTGRES_USER: ${DB_USER:-guardrail_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-guardrail_secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-guardrail_user} -d ${DB_NAME:-guardrail_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guardrail_api
+    restart: unless-stopped
+    command: gunicorn --bind 0.0.0.0:8000 --workers 3 --threads 2 guardrail.wsgi:application
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=${SECRET_KEY:-guardrail-docker-super-secret-key-change-in-production}
+      - ALLOWED_HOSTS=*
+      - DB_ENGINE=django.db.backends.postgresql
+      - DB_NAME=${DB_NAME:-guardrail_db}
+      - DB_USER=${DB_USER:-guardrail_user}
+      - DB_PASSWORD=${DB_PASSWORD:-guardrail_secure_password}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - STELLAR_NETWORK=${STELLAR_NETWORK:-TESTNET}
+      - STELLAR_HORIZON_URL=${STELLAR_HORIZON_URL:-https://horizon-testnet.stellar.org}
+      - STELLAR_NETWORK_PASSPHRASE=${STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
+      - GUARDRAIL_COSIGNER_PUBLIC_KEY=${GUARDRAIL_COSIGNER_PUBLIC_KEY}
+      - GUARDRAIL_COSIGNER_SECRET_KEY=${GUARDRAIL_COSIGNER_SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: guardrail_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  static_volume:

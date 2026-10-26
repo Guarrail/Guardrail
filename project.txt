@@ -1,0 +1,599 @@
+GUARDRAIL
+MVP Project Brief for UI/UX Designers & Developers
+Project Name: GuardRail
+Project Type: AI Agent Security / Programmable Capital Governance
+Blockchain: Stellar
+Development Stage: MVP — Sprint 1
+Platform: Responsive Web Application + Policy Coordinator API
+Environment: Stellar Testnet
+MVP Scope: One AI Agent, One Controlled Wallet
+
+1. Project Overview
+GuardRail is a policy-controlled capital management infrastructure built on Stellar that allows AI agents to initiate financial transactions without giving them unrestricted control over digital assets.
+The platform introduces a programmable security layer between an AI agent and the wallet it operates.
+Instead of allowing an AI agent to transfer funds freely, GuardRail evaluates every proposed transaction against predefined financial policies before authorizing execution.
+Operators can configure spending limits, approved recipients, supported assets, and human approval requirements.
+The MVP will combine a policy evaluation service, cryptographically bound transaction permits, Stellar multisig controls, and an operator dashboard.
+The goal is to allow AI agents to perform financial operations while ensuring that capital movements remain subject to enforceable policies and human oversight.
+2. Problem Being Solved
+AI agents are increasingly capable of initiating blockchain transactions, but traditional wallets are not designed to enforce detailed financial rules for autonomous software.
+An AI agent with unrestricted signing authority can potentially:
+Transfer more funds than intended.
+Send funds to unauthorized addresses.
+Exceed approved spending budgets.
+Move unsupported or restricted assets.
+Execute transactions without appropriate human review.
+Make unintended transfers after receiving manipulated instructions.
+GuardRail addresses these risks by separating transaction requests from final transaction authorization.
+The agent can propose a transaction, but it cannot independently authorize the movement of funds from the protected wallet.
+3. Target Users
+AI Agent Developers
+Developers building autonomous payment agents.
+Teams integrating AI with blockchain applications.
+Developers creating automated financial workflows.
+Wallet Operators
+Individuals managing agent-controlled funds.
+Businesses delegating limited financial tasks to AI.
+Treasury operators supervising automated transactions.
+Web3 Infrastructure Teams
+Wallet developers.
+Automation platforms.
+Blockchain security teams.
+AI payment infrastructure providers.
+4. Core User Journey
+Operator Flow
+Operator connects a Stellar wallet.
+Operator registers a controlled wallet.
+Operator verifies wallet ownership.
+Operator configures GuardRail signing controls.
+Operator creates transaction policies.
+Operator registers one AI agent.
+Operator reviews incoming agent requests.
+Operator approves or rejects transactions requiring human review.
+Operator monitors executed and rejected transactions.
+AI Agent Flow
+AI agent submits a transaction request.
+GuardRail validates the agent's identity.
+GuardRail checks the request against configured policies.
+GuardRail creates a permit for an eligible transaction.
+The operator approves the transaction where required.
+The authorized co-signer signs the exact approved transaction.
+The transaction is submitted to Stellar.
+GuardRail verifies the confirmed transaction.
+The dashboard displays the result.
+Core MVP Flow:
+Agent Request → Policy Evaluation → Permit Generation → Operator Approval → Multisig Co-Sign → Stellar Transaction → Verification
+
+PART A — UI/UX DESIGN BRIEF
+5. Design Objective
+Design a professional security-focused dashboard that allows operators to configure policies, supervise AI agents, approve transactions, and monitor capital movement.
+The product should feel like a modern financial security and infrastructure platform.
+The interface must prioritize:
+Clarity.
+Security.
+Trust.
+Transparency.
+Transaction control.
+Easy policy configuration.
+Clear approval decisions.
+Visual Direction
+Modern enterprise SaaS interface.
+Dark navy, charcoal, white, and neutral gray.
+Green for approved transactions.
+Amber for pending approval.
+Red for blocked or rejected requests.
+Minimal decorative elements.
+Clear data tables.
+Strong visual hierarchy.
+Responsive desktop and mobile layouts.
+6. Required Product Screens
+Screen 1 — Landing Page
+Purpose: Introduce GuardRail and explain its security model.
+Required sections:
+GuardRail logo.
+Navigation.
+Hero headline: "Give AI Agents Permission, Not Unlimited Control."
+Supporting product description.
+Launch Dashboard button.
+View Demo button.
+How GuardRail Works.
+Supported policy controls.
+Multisig security explanation.
+Agent transaction flow diagram.
+Developer API preview.
+Footer.
+Screen 2 — Operator Onboarding
+Purpose: Allow operators to initialize GuardRail.
+Required components:
+Connect Stellar Wallet.
+Wallet address display.
+Stellar Testnet indicator.
+Verify Wallet Ownership button.
+Register Controlled Wallet button.
+Setup progress indicator.
+The operator must understand the difference between their personal wallet and the wallet protected by GuardRail.
+Screen 3 — Wallet Security Setup
+Purpose: Configure the controlled wallet's signing structure.
+Required components:
+Controlled wallet address.
+Wallet ownership verification status.
+Current signer configuration.
+Agent signer information.
+GuardRail co-signer information.
+Operator signer information.
+Signature threshold.
+Security configuration preview.
+Confirm Configuration button.
+The interface must warn operators about changes to wallet signers and thresholds.
+For the MVP, use a dedicated Stellar Testnet wallet with a documented signing configuration rather than automatically modifying an existing wallet with valuable assets.
+Screen 4 — Main Dashboard
+Purpose: Give operators a complete overview of agent activity.
+Summary Cards
+Controlled Wallet Balance.
+Active AI Agents.
+Pending Approvals.
+Approved Transactions.
+Blocked Transactions.
+Spending Used.
+Additional Sections
+Recent agent requests.
+Policy status.
+Wallet security status.
+Recent executed transactions.
+Spending utilization chart.
+Quick Approve / Reject actions.
+The MVP supports one agent and one wallet, even though the interface may be designed for future expansion.
+Screen 5 — Policy Configuration
+Purpose: Allow operators to define transaction restrictions.
+Required components:
+Transaction Limits
+Maximum amount per transaction.
+Daily spending limit.
+Weekly spending limit.
+Recipient Controls
+Approved recipient addresses.
+Add Recipient button.
+Remove Recipient button.
+Asset Controls
+Allowed Stellar assets.
+Asset issuer information.
+Approval Controls
+Human approval threshold.
+Require Approval toggle.
+Policy Actions
+Save Policy.
+Review Changes.
+Activate Policy.
+The interface should explain the effect of each policy using plain language.
+Screen 6 — AI Agent Registration
+Purpose: Register the AI agent permitted to submit requests.
+Required components:
+Agent name.
+Agent description.
+Agent identifier.
+Agent authentication credential setup.
+Assigned controlled wallet.
+Assigned policy.
+Agent status.
+Activate / Deactivate Agent button.
+The dashboard must never expose complete agent API secrets after initial generation.
+Screen 7 — Agent Transaction Requests
+Purpose: Allow operators to review incoming transaction requests.
+Required information:
+Request ID.
+Agent name.
+Recipient address.
+Asset.
+Amount.
+Request timestamp.
+Policy evaluation result.
+Approval requirement.
+Transaction status.
+View Details button.
+Filters:
+Pending.
+Eligible.
+Blocked.
+Approved.
+Rejected.
+Executed.
+Screen 8 — Transaction Request Details
+Purpose: Show exactly what an AI agent is requesting.
+Required components:
+Agent identity.
+Controlled wallet.
+Recipient wallet.
+Asset and issuer.
+Transaction amount.
+Network fee estimate.
+Request timestamp.
+Request expiration.
+Policy version.
+Policy evaluation results.
+Approval status.
+Policy Evaluation Checklist
+Transaction amount within limit.
+Recipient approved.
+Asset permitted.
+Daily spending limit available.
+Weekly spending limit available.
+Human approval requirement satisfied.
+Actions:
+Approve Transaction.
+Reject Transaction.
+View Permit.
+Blocked transactions must not offer an executable approval path without an authorized policy change and fresh evaluation.
+Screen 9 — Permit Details
+Purpose: Display the authorization record associated with a transaction.
+Required components:
+Permit ID.
+Agent ID.
+Controlled wallet.
+Recipient.
+Asset.
+Amount.
+Policy version.
+Transaction hash or transaction payload hash.
+Permit expiration.
+Permit status.
+Approval information.
+The permit must be bound to a specific transaction payload and must not authorize arbitrary future transfers.
+Screen 10 — Approval & Co-Sign Interface
+Purpose: Allow authorized operators to approve eligible transactions.
+Required components:
+Transaction summary.
+Policy evaluation summary.
+Recipient information.
+Amount.
+Asset.
+Approval warning.
+Approve & Sign button.
+Reject button.
+Signing progress.
+Confirmation result.
+The interface must display the exact transaction the operator is authorizing.
+Screen 11 — Transaction History & Audit Log
+Purpose: Provide a transparent record of agent financial activity.
+Required information:
+Request ID.
+Agent.
+Recipient.
+Amount.
+Asset.
+Policy decision.
+Approval status.
+Transaction status.
+Timestamp.
+Stellar transaction hash.
+View on Explorer button.
+The audit log should include blocked and rejected requests, not only successful payments.
+Screen 12 — Settings & Security
+Purpose: Allow operators to manage GuardRail security settings.
+Required components:
+Connected operator wallet.
+Controlled wallet address.
+Registered agent.
+Active policy.
+Co-signer status.
+Agent credential rotation.
+Emergency Disable Agent button.
+Wallet security information.
+Disconnect Wallet button.
+7. Designer Deliverables
+The UI/UX designer must submit:
+Complete Figma design for all 12 screens.
+Desktop and mobile layouts.
+Interactive onboarding prototype.
+Policy configuration flow.
+Agent transaction approval flow.
+Permit details interface.
+Transaction monitoring dashboard.
+Reusable design system.
+Loading, empty, pending, approved, blocked, rejected, and failed states.
+Developer-ready handoff.
+Design Acceptance: An operator should be able to configure a policy, understand why an agent request was approved or blocked, and review the exact transaction before signing.
+
+PART B — DEVELOPMENT BRIEF
+8. Development Objective
+Build a functional GuardRail prototype that allows one authenticated AI agent to submit Stellar payment requests against one controlled wallet.
+The system must evaluate each request against predefined policies and require the appropriate authorization before the transaction can be executed.
+9. Recommended Technology Stack
+Component
+Technology
+Frontend
+Next.js / React
+Language
+TypeScript
+Styling
+Tailwind CSS
+Blockchain
+Stellar
+Stellar Integration
+Stellar SDK
+Wallet Integration
+Stellar Wallets Kit
+Policy Coordinator
+Node.js / TypeScript
+Backend API
+Next.js API / Node.js
+Database
+PostgreSQL
+Agent Integration
+REST API
+Signing
+Stellar Multisig
+Hosting
+Vercel + Secure Backend Service
+Network
+Stellar Testnet
+
+10. Module 1 — Policy & Permit Coordinator
+Develop a backend service responsible for evaluating agent transaction requests.
+Required Functionality
+Receive authenticated agent requests.
+Validate request format.
+Identify controlled wallet.
+Retrieve active policy.
+Validate allowed asset.
+Validate recipient address.
+Check per-transaction amount limit.
+Check daily spending limit.
+Check weekly spending limit.
+Determine approval requirements.
+Reject non-compliant requests.
+Generate transaction-bound permits.
+Record policy decisions.
+Initial Policy Rules
+Rule 1: Maximum Transaction Amount
+Reject requests above the configured per-transaction limit.
+Rule 2: Spending Budget
+Reject requests that would exceed the daily or weekly spending budget.
+Rule 3: Recipient Allowlist
+Only approved Stellar addresses can receive funds.
+Rule 4: Asset Allowlist
+Only explicitly permitted assets can be transferred.
+Rule 5: Human Approval Threshold
+Transactions above a configured threshold require explicit operator approval.
+For the initial implementation, all executed payments should require a GuardRail-controlled co-signature, even when separate human approval is not required.
+Permit Requirements
+Each permit must contain:
+Unique permit ID.
+Agent ID.
+Controlled wallet.
+Recipient.
+Asset.
+Amount.
+Transaction payload hash.
+Policy version.
+Creation time.
+Expiration time.
+Approval requirement.
+Permit status.
+A permit must be single-use and must not remain valid after cancellation, expiration, or policy invalidation.
+11. Module 2 — Stellar Wallet Ownership & Multisig
+Implement wallet ownership verification and controlled signing.
+Required Functionality
+Verify operator control of a Stellar wallet.
+Register one dedicated controlled wallet.
+Configure approved signer accounts.
+Configure transaction thresholds.
+Verify active signer configuration.
+Prevent independent agent transfers.
+Support controlled co-signing.
+Record wallet configuration.
+Recommended MVP Signing Model
+Use a dedicated Stellar Testnet account with:
+Agent signer: weight 1.
+GuardRail co-signer: weight 1.
+Medium transaction threshold: 2.
+Operator master signer retained securely for recovery and administration.
+Ordinary payment transactions should require the agent and GuardRail co-signer.
+The GuardRail co-signer must only sign transactions that have passed policy checks and any required human approval.
+Security Boundary: Stellar multisig enforces signer requirements, while the GuardRail coordinator enforces the detailed policies before contributing its signature.
+The coordinator is therefore a security-critical component. Policy rules are not independently enforced by native Stellar multisig.
+The development team must also validate operation thresholds, account-level authorization, signer changes, fee-bump behavior, and administrative permissions to prevent bypasses.
+12. Module 3 — Agent Transaction Request API
+Build an API that allows a registered AI agent to request payments.
+Required Endpoints
+Submit transaction request.
+Retrieve request status.
+Retrieve active policy summary.
+Retrieve permitted assets.
+Retrieve approved recipients.
+Retrieve transaction result.
+Example Request
+{
+  "agent_id": "agent_001",
+  "wallet_id": "wallet_001",
+  "recipient": "GEXAMPLESTELLARADDRESS",
+  "asset": "XLM",
+  "amount": "25",
+  "request_id": "req_001"
+}
+The agent must not have direct access to the GuardRail co-signer's private key.
+API authentication credentials must be stored securely and support revocation.
+13. Module 4 — Single-Permit Approval & Co-Sign
+Implement the complete authorization workflow.
+Required Functionality
+Receive transaction request.
+Validate agent identity.
+Evaluate policy.
+Construct exact Stellar transaction.
+Generate permit linked to transaction hash.
+Determine human approval requirement.
+Present eligible request to operator when required.
+Record operator approval.
+Revalidate policy and wallet state before co-signing.
+Obtain required signatures.
+Submit transaction to Stellar.
+Verify transaction result.
+Mark permit as used or failed.
+Update audit history.
+Important Requirements
+A permit must not be reusable for another transaction.
+The recipient and amount must not change after approval.
+The coordinator must never sign a different payload from the approved one.
+Expired permits must be rejected.
+Duplicate request IDs must be handled safely.
+Concurrent requests must not bypass spending limits.
+Failed transactions must be reconciled before releasing reserved budget.
+14. Module 5 — Operator Dashboard
+Develop a dashboard that allows operators to:
+Register controlled wallet.
+Configure policies.
+Register agent.
+View incoming requests.
+Approve eligible transactions.
+Reject requests.
+View permits.
+Monitor spending.
+View executed transactions.
+Disable agent access.
+The dashboard must be connected to the actual policy coordinator and Stellar Testnet activity.
+15. Module 6 — Spending Limit Accounting
+Implement budget tracking for daily and weekly spending.
+Required Functionality
+Record eligible payment amounts.
+Reserve spending capacity for approved pending transactions.
+Track confirmed spending.
+Release reservations after verified failures.
+Reset spending windows according to defined UTC boundaries.
+Prevent parallel requests from exceeding the same budget.
+Display remaining budget.
+The MVP must use deterministic accounting rules and avoid floating-point calculations for token amounts.
+16. Module 7 — Transaction Verification & Audit Log
+Build a monitoring service that records:
+Agent request.
+Policy evaluation.
+Permit generation.
+Operator approval or rejection.
+Co-signing result.
+Stellar submission.
+Confirmed transaction result.
+Failure reason.
+Required features:
+Transaction hash storage.
+Stellar Explorer links.
+Permit-to-transaction mapping.
+Timestamped audit records.
+Policy decision history.
+Failed request logging.
+For this MVP, on-chain verification means confirming the executed Stellar transaction and its signer requirements. The detailed policy evaluation remains off-chain, with an auditable permit and decision record.
+17. Security Requirements
+GuardRail is a security-focused infrastructure project. The following requirements are mandatory:
+Agent must not possess unrestricted wallet signing authority.
+GuardRail co-signer key must remain separate from agent credentials.
+Private keys must never be exposed through frontend or API responses.
+Every transaction must pass policy evaluation.
+Human approval must be enforced where required.
+Permits must be transaction-bound and single-use.
+Duplicate requests must not bypass controls.
+Concurrent requests must not exceed spending limits.
+Recipient and asset allowlists must be enforced.
+Signing services must revalidate transaction details.
+Administrative wallet operations must not bypass the intended signing configuration.
+Emergency agent disabling must prevent new co-signatures.
+All testing must use Stellar Testnet assets.
+
+PART C — 30-DAY DEVELOPMENT PLAN
+19. Required Testing Scenarios
+The development team must demonstrate:
+Operator registers a controlled wallet.
+Wallet ownership is verified.
+Multisig configuration is established.
+Operator creates a spending policy.
+Operator registers one AI agent.
+Agent submits a valid transaction request.
+Policy coordinator evaluates the request.
+A permit is generated for the approved transaction.
+Required co-signatures are collected.
+Transaction executes on Stellar Testnet.
+Transaction result appears in the dashboard.
+A transaction exceeding the amount limit is blocked.
+A transfer to an unauthorized recipient is blocked.
+A transfer involving a restricted asset is blocked.
+A transaction exceeding daily spending limits is blocked.
+A high-value request requires human approval.
+A rejected request cannot execute.
+An expired permit cannot be reused.
+A duplicate request does not produce a second payment.
+The agent cannot independently transfer funds.
+Concurrent requests cannot bypass spending limits.
+A modified transaction cannot reuse an existing permit.
+20. Out of Scope
+Mainnet deployment.
+Multiple AI agents.
+Multiple controlled wallets.
+Enterprise treasury management.
+Complex multi-organization approvals.
+Cross-chain transactions.
+DeFi strategy execution.
+Autonomous trading.
+Advanced AI decision-making.
+Production key-management infrastructure.
+Formal security audits.
+Full on-chain policy evaluation.
+Soroban smart-account architecture.
+Hardware wallet integration.
+
+PART D — FINAL HANDOVER
+21. Deliverables by Role
+UI/UX Designer
+Complete Figma file.
+12 core screens.
+Responsive desktop and mobile layouts.
+Policy configuration interface.
+Transaction approval interface.
+Permit details screen.
+Transaction history dashboard.
+Interactive prototype.
+Design system.
+Stellar / Security Developer
+Controlled wallet configuration.
+Stellar multisig implementation.
+Signing threshold validation.
+Co-signing integration.
+Transaction construction.
+Transaction verification.
+Security test cases.
+Backend Developer
+Policy evaluation engine.
+Permit coordinator.
+Agent authentication.
+Spending limit accounting.
+Approval workflow.
+Secure signing integration.
+Transaction monitoring.
+Audit logging.
+Frontend Developer
+Operator dashboard.
+Wallet connection.
+Policy configuration.
+Agent registration.
+Transaction request table.
+Approval interface.
+Permit viewer.
+Transaction history.
+Security settings.
+22. Definition of Done
+GuardRail MVP is complete when one authenticated AI agent can request a Stellar payment from one controlled Testnet wallet, and that payment can execute only after satisfying the configured policy and required signing conditions.
+The demonstration must show both successful and blocked transactions.
+The agent must be unable to independently move funds without the GuardRail co-signer.
+The operator must be able to review transaction details, approve or reject requests requiring human oversight, and verify executed transactions through Stellar.
+Final Handover Requirements
+Complete Figma design.
+GitHub repository.
+Live operator dashboard.
+Policy coordinator API.
+Testnet-controlled wallet address.
+Multisig configuration evidence.
+Permit records.
+Stellar transaction hashes.
+Policy enforcement test results.
+Security test documentation.
+End-to-end demo video.
+Technical setup documentation.
+Final Team Instruction: GuardRail must demonstrate enforceable financial controls, not merely a dashboard that displays AI agent transaction requests.
+The most important deliverable is a working security boundary in which the agent cannot independently transfer protected funds and the GuardRail co-signer refuses transactions that violate the active policy.
+The first sprint should prioritize one secure, fully tested agent-to-wallet transaction flow before expanding to multiple agents, complex policies, or enterprise features.
+

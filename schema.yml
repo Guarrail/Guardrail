@@ -1,0 +1,3117 @@
+openapi: 3.0.3
+info:
+  title: GuardRail Policy Coordinator API
+  version: 1.0.0
+  description: |-
+    GuardRail is a policy-controlled capital management infrastructure built on Stellar that allows AI agents to initiate financial transactions without giving them unrestricted control over digital assets.
+
+    Key Capabilities:
+    - Policy Evaluation Engine (Single tx limits, daily/weekly budgets, recipient/asset allowlists)
+    - Single-Use Cryptographically Bound Permits (Payload hash verification)
+    - Stellar Multisig Guardrail (Agent weight 1, Co-signer weight 1, Threshold 2)
+    - Operator Review & Human Approval Workflows
+    - Immutable Audit Logging with Stellar Explorer links
+    - Soroban Smart Contract Verification & Simulation
+paths:
+  /api/health/:
+    get:
+      operationId: api_health_retrieve
+      description: Check health status of the GuardRail coordinator service.
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+          description: ''
+  /api/v1/agent/policy-summary/:
+    get:
+      operationId: api_v1_agent_policy_summary_retrieve
+      description: Retrieve active policy rules, remaining spending budget, allowed
+        assets, and approved recipients.
+      tags:
+      - api
+      security:
+      - AgentApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPolicySummaryResponse'
+          description: ''
+  /api/v1/agent/requests/:
+    post:
+      operationId: api_v1_agent_requests_create
+      description: Submit an agent payment request. Returns the policy evaluation
+        result, approval status, and permit.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentSubmitRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AgentSubmitRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AgentSubmitRequestRequest'
+        required: true
+      security:
+      - AgentApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/agent/requests/{request_id}/:
+    get:
+      operationId: api_v1_agent_requests_retrieve
+      description: Query the current status, permit, and Stellar transaction hash
+        for a submitted request ID.
+      parameters:
+      - in: path
+        name: request_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - AgentApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+  /api/v1/agents/:
+    get:
+      operationId: api_v1_agents_list
+      description: |-
+        Operator ViewSet for registering and supervising AI Agents.
+        Supports secure credential issuance, rotation, and emergency killswitch.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAIAgentList'
+          description: ''
+    post:
+      operationId: api_v1_agents_create
+      description: Register a new AI agent and generate its cryptographically secured
+        API Key.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateAIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateAIAgentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRegistrationResponse'
+          description: ''
+  /api/v1/agents/{id}/:
+    get:
+      operationId: api_v1_agents_retrieve
+      description: |-
+        Operator ViewSet for registering and supervising AI Agents.
+        Supports secure credential issuance, rotation, and emergency killswitch.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+          description: ''
+    put:
+      operationId: api_v1_agents_update
+      description: |-
+        Operator ViewSet for registering and supervising AI Agents.
+        Supports secure credential issuance, rotation, and emergency killswitch.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+          description: ''
+    patch:
+      operationId: api_v1_agents_partial_update
+      description: |-
+        Operator ViewSet for registering and supervising AI Agents.
+        Supports secure credential issuance, rotation, and emergency killswitch.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAIAgentRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+          description: ''
+    delete:
+      operationId: api_v1_agents_destroy
+      description: |-
+        Operator ViewSet for registering and supervising AI Agents.
+        Supports secure credential issuance, rotation, and emergency killswitch.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/agents/{id}/activate/:
+    post:
+      operationId: api_v1_agents_activate_create
+      description: Re-enable an emergency-disabled or inactive AI agent.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+          description: ''
+  /api/v1/agents/{id}/emergency-disable/:
+    post:
+      operationId: api_v1_agents_emergency_disable_create
+      description: 'Emergency killswitch: instantly deactivate the agent to block
+        all outbound payment requests.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+          description: ''
+  /api/v1/agents/{id}/rotate-key/:
+    post:
+      operationId: api_v1_agents_rotate_key_create
+      description: Rotate API credentials for an existing AI agent, immediately invalidating
+        the old key.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai agent.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIAgentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRegistrationResponse'
+          description: ''
+  /api/v1/assets/:
+    get:
+      operationId: api_v1_assets_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAllowedAssetList'
+          description: ''
+    post:
+      operationId: api_v1_assets_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedAsset'
+          description: ''
+  /api/v1/assets/{id}/:
+    get:
+      operationId: api_v1_assets_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed asset.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedAsset'
+          description: ''
+    put:
+      operationId: api_v1_assets_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed asset.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllowedAssetRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedAsset'
+          description: ''
+    patch:
+      operationId: api_v1_assets_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed asset.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedAssetRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedAsset'
+          description: ''
+    delete:
+      operationId: api_v1_assets_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed asset.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/audit/logs/:
+    get:
+      operationId: api_v1_audit_logs_list
+      description: Read-only audit log viewset. Provides transparency and compliance
+        reporting.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/v1/audit/logs/{id}/:
+    get:
+      operationId: api_v1_audit_logs_retrieve
+      description: Read-only audit log viewset. Provides transparency and compliance
+        reporting.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this audit log.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
+          description: ''
+  /api/v1/auth/challenge/:
+    post:
+      operationId: api_v1_auth_challenge_create
+      description: Generates a cryptographic challenge for the provided Stellar wallet
+        address.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengeResponse'
+          description: ''
+  /api/v1/auth/me/:
+    get:
+      operationId: api_v1_auth_me_retrieve
+      description: Retrieve the operator profile by address query param or header.
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operator'
+          description: ''
+  /api/v1/auth/verify/:
+    post:
+      operationId: api_v1_auth_verify_create
+      description: Verifies the signed challenge and authenticates the operator wallet.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifySignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifySignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifySignatureRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operator'
+          description: ''
+  /api/v1/coordinator/dashboard-stats/:
+    get:
+      operationId: api_v1_coordinator_dashboard_stats_retrieve
+      description: 'Retrieve key operational indicators: wallet balance, pending approvals,
+        spending utilization.'
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+          description: ''
+  /api/v1/coordinator/permits/:
+    get:
+      operationId: api_v1_coordinator_permits_list
+      description: Operator ViewSet to inspect authorization permits.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPermitList'
+          description: ''
+  /api/v1/coordinator/permits/{id}/:
+    get:
+      operationId: api_v1_coordinator_permits_retrieve
+      description: Operator ViewSet to inspect authorization permits.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this permit.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Permit'
+          description: ''
+  /api/v1/coordinator/requests/:
+    get:
+      operationId: api_v1_coordinator_requests_list
+      description: Operator ViewSet to monitor, review, approve, reject, and trigger
+        co-signing of agent requests.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransactionRequestList'
+          description: ''
+  /api/v1/coordinator/requests/{id}/:
+    get:
+      operationId: api_v1_coordinator_requests_retrieve
+      description: Operator ViewSet to monitor, review, approve, reject, and trigger
+        co-signing of agent requests.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this transaction request.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+  /api/v1/coordinator/requests/{id}/approve/:
+    post:
+      operationId: api_v1_coordinator_requests_approve_create
+      description: Operator approves a pending transaction request, transitioning
+        it to APPROVED.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this transaction request.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperatorApprovalRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OperatorApprovalRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OperatorApprovalRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+  /api/v1/coordinator/requests/{id}/cosign-and-submit/:
+    post:
+      operationId: api_v1_coordinator_requests_cosign_and_submit_create
+      description: Co-signs the exact approved transaction payload and submits to
+        Stellar Testnet.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this transaction request.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+  /api/v1/coordinator/requests/{id}/reject/:
+    post:
+      operationId: api_v1_coordinator_requests_reject_create
+      description: Operator rejects a pending request, transitioning it to REJECTED
+        and releasing reserved budget.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this transaction request.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperatorRejectionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OperatorRejectionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OperatorRejectionRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRequest'
+          description: ''
+  /api/v1/policies/:
+    get:
+      operationId: api_v1_policies_list
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPolicyList'
+          description: ''
+    post:
+      operationId: api_v1_policies_create
+      description: ViewSet for defining and managing financial policies and rules.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+  /api/v1/policies/{id}/:
+    get:
+      operationId: api_v1_policies_retrieve
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+    put:
+      operationId: api_v1_policies_update
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+    patch:
+      operationId: api_v1_policies_partial_update
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPolicyRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+    delete:
+      operationId: api_v1_policies_destroy
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/policies/{id}/add-asset/:
+    post:
+      operationId: api_v1_policies_add_asset_create
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+  /api/v1/policies/{id}/add-recipient/:
+    post:
+      operationId: api_v1_policies_add_recipient_create
+      description: ViewSet for defining and managing financial policies and rules.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PolicyRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+          description: ''
+  /api/v1/policies/{id}/budget-status/:
+    get:
+      operationId: api_v1_policies_budget_status_retrieve
+      description: Retrieve real-time remaining daily and weekly spending budgets
+        for a wallet under this policy.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this policy.
+        required: true
+      - in: query
+        name: wallet_id
+        schema:
+          type: string
+        description: Controlled wallet UUID
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpendingStatus'
+          description: ''
+  /api/v1/recipients/:
+    get:
+      operationId: api_v1_recipients_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAllowedRecipientList'
+          description: ''
+    post:
+      operationId: api_v1_recipients_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedRecipient'
+          description: ''
+  /api/v1/recipients/{id}/:
+    get:
+      operationId: api_v1_recipients_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed recipient.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedRecipient'
+          description: ''
+    put:
+      operationId: api_v1_recipients_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed recipient.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllowedRecipientRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedRecipient'
+          description: ''
+    patch:
+      operationId: api_v1_recipients_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed recipient.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedRecipientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedRecipientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAllowedRecipientRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedRecipient'
+          description: ''
+    delete:
+      operationId: api_v1_recipients_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this allowed recipient.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/smart-contract/simulate/:
+    post:
+      operationId: api_v1_smart_contract_simulate_create
+      description: Simulate on-chain execution and authorization verification of a
+        GuardRail permit.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SorobanSimulateRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SorobanSimulateRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SorobanSimulateRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SorobanSimulateResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SorobanSimulateResponse'
+          description: ''
+  /api/v1/smart-contract/status/:
+    get:
+      operationId: api_v1_smart_contract_status_retrieve
+      description: Inspect Soroban smart contract deployment parameters and features.
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SorobanContractStatusResponse'
+          description: ''
+  /api/v1/wallets/:
+    get:
+      operationId: api_v1_wallets_list
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedControlledWalletList'
+          description: ''
+    post:
+      operationId: api_v1_wallets_create
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlledWallet'
+          description: ''
+  /api/v1/wallets/{id}/:
+    get:
+      operationId: api_v1_wallets_retrieve
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this controlled wallet.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlledWallet'
+          description: ''
+    put:
+      operationId: api_v1_wallets_update
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this controlled wallet.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ControlledWalletRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlledWallet'
+          description: ''
+    patch:
+      operationId: api_v1_wallets_partial_update
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this controlled wallet.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedControlledWalletRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedControlledWalletRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedControlledWalletRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlledWallet'
+          description: ''
+    delete:
+      operationId: api_v1_wallets_destroy
+      description: |-
+        CRUD viewset for managing Controlled Stellar Wallets.
+        Supports security boundary audits and ownership verification.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this controlled wallet.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/wallets/{id}/security-audit/:
+    get:
+      operationId: api_v1_wallets_security_audit_retrieve
+      description: Verify multisig security compliance and return detailed audit assessment.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this controlled wallet.
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /health/:
+    get:
+      operationId: health_retrieve
+      description: Check health status of the GuardRail coordinator service.
+      tags:
+      - health
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+          description: ''
+components:
+  schemas:
+    AIAgent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        agent_id:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        wallet:
+          type: string
+          format: uuid
+        policy:
+          type: string
+          format: uuid
+        api_key_prefix:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AIAgentStatusEnum'
+        is_operational:
+          type: boolean
+          readOnly: true
+        emergency_disabled_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_active_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - agent_id
+      - api_key_prefix
+      - created_at
+      - emergency_disabled_at
+      - id
+      - is_operational
+      - last_active_at
+      - name
+      - policy
+      - updated_at
+      - wallet
+    AIAgentRequest:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        wallet:
+          type: string
+          format: uuid
+        policy:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AIAgentStatusEnum'
+      required:
+      - agent_id
+      - name
+      - policy
+      - wallet
+    AIAgentStatusEnum:
+      enum:
+      - ACTIVE
+      - INACTIVE
+      - DISABLED
+      - REVOKED
+      type: string
+      description: |-
+        * `ACTIVE` - Active
+        * `INACTIVE` - Inactive
+        * `DISABLED` - Emergency Disabled
+        * `REVOKED` - Credentials Revoked
+    AgentPolicySummaryResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        wallet_address:
+          type: string
+        policy:
+          type: object
+          additionalProperties: {}
+        allowed_recipients:
+          type: array
+          items: {}
+        allowed_assets:
+          type: array
+          items: {}
+      required:
+      - agent_id
+      - allowed_assets
+      - allowed_recipients
+      - policy
+      - wallet_address
+    AgentRegistrationResponse:
+      type: object
+      properties:
+        agent:
+          $ref: '#/components/schemas/AIAgent'
+        api_key:
+          type: string
+          description: Full plaintext API Key. Displayed only ONCE upon creation.
+            Store securely.
+        warning:
+          type: string
+      required:
+      - agent
+      - api_key
+      - warning
+    AgentSubmitRequestRequest:
+      type: object
+      description: Payload submitted by an AI Agent to propose a payment.
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+          description: Unique client idempotency key
+          maxLength: 100
+        recipient:
+          type: string
+          minLength: 1
+          description: Destination Stellar address
+          maxLength: 56
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        asset:
+          type: string
+          minLength: 1
+          default: XLM
+          maxLength: 12
+        issuer:
+          type: string
+          maxLength: 56
+        wallet_id:
+          type: string
+          format: uuid
+      required:
+      - amount
+      - recipient
+      - request_id
+    AllowedAsset:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        policy:
+          type: string
+          format: uuid
+        asset_code:
+          type: string
+          default: XLM
+          maxLength: 12
+        issuer_address:
+          type: string
+          nullable: true
+          maxLength: 56
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - policy
+    AllowedAssetRequest:
+      type: object
+      properties:
+        policy:
+          type: string
+          format: uuid
+        asset_code:
+          type: string
+          minLength: 1
+          default: XLM
+          maxLength: 12
+        issuer_address:
+          type: string
+          nullable: true
+          maxLength: 56
+        is_active:
+          type: boolean
+      required:
+      - policy
+    AllowedRecipient:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        policy:
+          type: string
+          format: uuid
+        address:
+          type: string
+          maxLength: 56
+        label:
+          type: string
+          maxLength: 150
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - created_at
+      - id
+      - policy
+    AllowedRecipientRequest:
+      type: object
+      properties:
+        policy:
+          type: string
+          format: uuid
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        label:
+          type: string
+          maxLength: 150
+        is_active:
+          type: boolean
+      required:
+      - address
+      - policy
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        event_type:
+          allOf:
+          - $ref: '#/components/schemas/EventTypeEnum'
+          readOnly: true
+        actor_type:
+          type: string
+          readOnly: true
+        actor_id:
+          type: string
+          readOnly: true
+        request_id:
+          type: string
+          readOnly: true
+        permit_id:
+          type: string
+          readOnly: true
+        stellar_tx_hash:
+          type: string
+          readOnly: true
+        stellar_explorer_url:
+          type: string
+          readOnly: true
+        details:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - actor_id
+      - actor_type
+      - created_at
+      - details
+      - event_type
+      - id
+      - permit_id
+      - request_id
+      - stellar_explorer_url
+      - stellar_tx_hash
+    ChallengeRequestRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+      required:
+      - address
+    ChallengeResponse:
+      type: object
+      properties:
+        address:
+          type: string
+        challenge:
+          type: string
+        nonce:
+          type: string
+      required:
+      - address
+      - challenge
+      - nonce
+    ControlledWallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        address:
+          type: string
+          maxLength: 56
+        name:
+          type: string
+          maxLength: 150
+        operator:
+          type: string
+          format: uuid
+        network:
+          $ref: '#/components/schemas/NetworkEnum'
+        is_verified:
+          type: boolean
+        is_active:
+          type: boolean
+        master_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        agent_signer_address:
+          type: string
+          maxLength: 56
+        agent_signer_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        cosigner_address:
+          type: string
+          maxLength: 56
+        cosigner_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_low:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_med:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_high:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        asset_code:
+          type: string
+          maxLength: 12
+        is_compliant:
+          type: boolean
+          readOnly: true
+        compliance_message:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - compliance_message
+      - created_at
+      - id
+      - is_compliant
+      - operator
+      - updated_at
+    ControlledWalletRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        operator:
+          type: string
+          format: uuid
+        network:
+          $ref: '#/components/schemas/NetworkEnum'
+        is_verified:
+          type: boolean
+        is_active:
+          type: boolean
+        master_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        agent_signer_address:
+          type: string
+          maxLength: 56
+        agent_signer_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        cosigner_address:
+          type: string
+          maxLength: 56
+        cosigner_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_low:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_med:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_high:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        asset_code:
+          type: string
+          minLength: 1
+          maxLength: 12
+      required:
+      - address
+      - operator
+    CreateAIAgentRequest:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        wallet:
+          type: string
+          format: uuid
+        policy:
+          type: string
+          format: uuid
+      required:
+      - agent_id
+      - name
+      - policy
+      - wallet
+    DashboardStats:
+      type: object
+      properties:
+        wallet_balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        active_agents:
+          type: integer
+        pending_approvals:
+          type: integer
+        approved_transactions:
+          type: integer
+        blocked_transactions:
+          type: integer
+        executed_transactions:
+          type: integer
+        spent_daily:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        daily_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        spent_weekly:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        weekly_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+      required:
+      - active_agents
+      - approved_transactions
+      - blocked_transactions
+      - daily_limit
+      - executed_transactions
+      - pending_approvals
+      - spent_daily
+      - spent_weekly
+      - wallet_balance
+      - weekly_limit
+    EventTypeEnum:
+      enum:
+      - AGENT_REQUEST_SUBMITTED
+      - POLICY_EVALUATED_PASS
+      - POLICY_EVALUATED_BLOCKED
+      - PERMIT_GENERATED
+      - OPERATOR_APPROVED
+      - OPERATOR_REJECTED
+      - TX_CO_SIGNED
+      - TX_SUBMITTED
+      - TX_CONFIRMED
+      - TX_FAILED
+      - AGENT_DISABLED
+      - AGENT_ACTIVATED
+      - POLICY_UPDATED
+      type: string
+      description: |-
+        * `AGENT_REQUEST_SUBMITTED` - Agent Request Submitted
+        * `POLICY_EVALUATED_PASS` - Policy Evaluated (Passed)
+        * `POLICY_EVALUATED_BLOCKED` - Policy Evaluated (Blocked)
+        * `PERMIT_GENERATED` - Permit Generated
+        * `OPERATOR_APPROVED` - Operator Approved
+        * `OPERATOR_REJECTED` - Operator Rejected
+        * `TX_CO_SIGNED` - Transaction Co-Signed
+        * `TX_SUBMITTED` - Transaction Submitted to Stellar
+        * `TX_CONFIRMED` - Transaction Confirmed On-Chain
+        * `TX_FAILED` - Transaction Execution Failed
+        * `AGENT_DISABLED` - Agent Emergency Disabled
+        * `AGENT_ACTIVATED` - Agent Activated
+        * `POLICY_UPDATED` - Policy Updated
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+        stellar_network:
+          type: string
+        multisig_model:
+          type: string
+      required:
+      - multisig_model
+      - service
+      - status
+      - stellar_network
+      - version
+    NetworkEnum:
+      enum:
+      - TESTNET
+      - PUBLIC
+      type: string
+      description: |-
+        * `TESTNET` - Stellar Testnet
+        * `PUBLIC` - Stellar Public
+    Operator:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        address:
+          type: string
+          maxLength: 56
+        alias:
+          type: string
+          maxLength: 100
+        is_verified:
+          type: boolean
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - created_at
+      - id
+      - is_verified
+      - last_login
+    OperatorApprovalRequest:
+      type: object
+      properties:
+        operator_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        notes:
+          type: string
+          default: ''
+      required:
+      - operator_address
+    OperatorRejectionRequest:
+      type: object
+      properties:
+        operator_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        reason:
+          type: string
+          minLength: 1
+      required:
+      - operator_address
+      - reason
+    PaginatedAIAgentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIAgent'
+    PaginatedAllowedAssetList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllowedAsset'
+    PaginatedAllowedRecipientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllowedRecipient'
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedControlledWalletList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ControlledWallet'
+    PaginatedPermitList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permit'
+    PaginatedPolicyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Policy'
+    PaginatedTransactionRequestList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionRequest'
+    PatchedAIAgentRequest:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        wallet:
+          type: string
+          format: uuid
+        policy:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AIAgentStatusEnum'
+    PatchedAllowedAssetRequest:
+      type: object
+      properties:
+        policy:
+          type: string
+          format: uuid
+        asset_code:
+          type: string
+          minLength: 1
+          default: XLM
+          maxLength: 12
+        issuer_address:
+          type: string
+          nullable: true
+          maxLength: 56
+        is_active:
+          type: boolean
+    PatchedAllowedRecipientRequest:
+      type: object
+      properties:
+        policy:
+          type: string
+          format: uuid
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        label:
+          type: string
+          maxLength: 150
+        is_active:
+          type: boolean
+    PatchedControlledWalletRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        operator:
+          type: string
+          format: uuid
+        network:
+          $ref: '#/components/schemas/NetworkEnum'
+        is_verified:
+          type: boolean
+        is_active:
+          type: boolean
+        master_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        agent_signer_address:
+          type: string
+          maxLength: 56
+        agent_signer_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        cosigner_address:
+          type: string
+          maxLength: 56
+        cosigner_weight:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_low:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_med:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        threshold_high:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        balance:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        asset_code:
+          type: string
+          minLength: 1
+          maxLength: 12
+    PatchedPolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        version:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        max_amount_per_tx:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum allowed amount per single transaction.
+        daily_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar day.
+        weekly_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar week.
+        human_approval_threshold:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Transactions strictly exceeding this amount require explicit
+            human operator approval.
+        require_human_approval_always:
+          type: boolean
+          description: If True, all transactions require human approval regardless
+            of amount.
+        is_active:
+          type: boolean
+    Permit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        request:
+          type: string
+          format: uuid
+          readOnly: true
+        agent:
+          type: string
+          format: uuid
+          readOnly: true
+        wallet:
+          type: string
+          format: uuid
+          readOnly: true
+        recipient:
+          type: string
+          readOnly: true
+        asset_code:
+          type: string
+          readOnly: true
+        asset_issuer:
+          type: string
+          readOnly: true
+          nullable: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          readOnly: true
+        payload_hash:
+          type: string
+          readOnly: true
+          description: SHA-256 hash of canonical tx payload
+        policy_version:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PermitStatusEnum'
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_single_use_consumed:
+          type: boolean
+          readOnly: true
+        is_valid:
+          type: boolean
+          readOnly: true
+        approved_by:
+          type: string
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - agent
+      - amount
+      - approved_at
+      - approved_by
+      - asset_code
+      - asset_issuer
+      - created_at
+      - expires_at
+      - id
+      - is_single_use_consumed
+      - is_valid
+      - payload_hash
+      - policy_version
+      - recipient
+      - request
+      - status
+      - wallet
+    PermitStatusEnum:
+      enum:
+      - PENDING_APPROVAL
+      - APPROVED
+      - USED
+      - REJECTED
+      - EXPIRED
+      - CANCELLED
+      type: string
+      description: |-
+        * `PENDING_APPROVAL` - Pending Operator Approval
+        * `APPROVED` - Approved
+        * `USED` - Single-Use Consumed
+        * `REJECTED` - Rejected
+        * `EXPIRED` - Expired
+        * `CANCELLED` - Cancelled
+    Policy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        version:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        max_amount_per_tx:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum allowed amount per single transaction.
+        daily_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar day.
+        weekly_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar week.
+        human_approval_threshold:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Transactions strictly exceeding this amount require explicit
+            human operator approval.
+        require_human_approval_always:
+          type: boolean
+          description: If True, all transactions require human approval regardless
+            of amount.
+        is_active:
+          type: boolean
+        allowed_recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllowedRecipient'
+          readOnly: true
+        allowed_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllowedAsset'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - allowed_assets
+      - allowed_recipients
+      - created_at
+      - id
+      - name
+      - updated_at
+    PolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        version:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        max_amount_per_tx:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum allowed amount per single transaction.
+        daily_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar day.
+        weekly_spending_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Maximum cumulative spending permitted per UTC calendar week.
+        human_approval_threshold:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          description: Transactions strictly exceeding this amount require explicit
+            human operator approval.
+        require_human_approval_always:
+          type: boolean
+          description: If True, all transactions require human approval regardless
+            of amount.
+        is_active:
+          type: boolean
+      required:
+      - name
+    SorobanContractStatusResponse:
+      type: object
+      properties:
+        contract_name:
+          type: string
+        version:
+          type: string
+        blockchain:
+          type: string
+        contract_address:
+          type: string
+        features:
+          type: array
+          items: {}
+        status:
+          type: string
+      required:
+      - blockchain
+      - contract_address
+      - contract_name
+      - features
+      - status
+      - version
+    SorobanSimulateRequestRequest:
+      type: object
+      properties:
+        permit_id_hex:
+          type: string
+          minLength: 1
+          maxLength: 64
+        token_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        recipient_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        amount_stroops:
+          type: integer
+          minimum: 1
+        expires_at_timestamp:
+          type: integer
+        agent_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        cosigner_address:
+          type: string
+          minLength: 1
+          maxLength: 56
+      required:
+      - agent_address
+      - amount_stroops
+      - cosigner_address
+      - expires_at_timestamp
+      - permit_id_hex
+      - recipient_address
+      - token_address
+    SorobanSimulateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        contract_address:
+          type: string
+        simulated_tx_hash:
+          type: string
+        events_emitted:
+          type: array
+          items: {}
+        timestamp:
+          type: integer
+        error:
+          type: string
+        error_code:
+          type: integer
+      required:
+      - success
+    SpendingStatus:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+          format: uuid
+        policy_id:
+          type: string
+          format: uuid
+        daily_date:
+          type: string
+        spent_daily:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        reserved_daily:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        daily_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        remaining_daily:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        weekly_iso_week:
+          type: string
+        spent_weekly:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        reserved_weekly:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        weekly_limit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+        remaining_weekly:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+      required:
+      - daily_date
+      - daily_limit
+      - policy_id
+      - remaining_daily
+      - remaining_weekly
+      - reserved_daily
+      - reserved_weekly
+      - spent_daily
+      - spent_weekly
+      - wallet_id
+      - weekly_iso_week
+      - weekly_limit
+    TransactionRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        request_id:
+          type: string
+          readOnly: true
+          description: Unique idempotency key from agent
+        agent:
+          type: string
+          format: uuid
+          readOnly: true
+        wallet:
+          type: string
+          format: uuid
+          readOnly: true
+        recipient:
+          type: string
+          readOnly: true
+        asset_code:
+          type: string
+          readOnly: true
+        asset_issuer:
+          type: string
+          readOnly: true
+          nullable: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,13}(?:\.\d{0,7})?$
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/TransactionStatusEnum'
+          readOnly: true
+        requires_human_approval:
+          type: boolean
+          readOnly: true
+        policy_evaluation_results:
+          readOnly: true
+        stellar_tx_hash:
+          type: string
+          readOnly: true
+        stellar_explorer_url:
+          type: string
+          nullable: true
+          readOnly: true
+        execution_error:
+          type: string
+          readOnly: true
+        is_eligible_for_cosign:
+          type: boolean
+          readOnly: true
+        permit:
+          allOf:
+          - $ref: '#/components/schemas/Permit'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - agent
+      - amount
+      - asset_code
+      - asset_issuer
+      - created_at
+      - execution_error
+      - id
+      - is_eligible_for_cosign
+      - permit
+      - policy_evaluation_results
+      - recipient
+      - request_id
+      - requires_human_approval
+      - status
+      - stellar_explorer_url
+      - stellar_tx_hash
+      - updated_at
+      - wallet
+    TransactionStatusEnum:
+      enum:
+      - PENDING_EVALUATION
+      - BLOCKED
+      - PENDING_APPROVAL
+      - APPROVED
+      - REJECTED
+      - CO_SIGNED
+      - EXECUTED
+      - FAILED
+      type: string
+      description: |-
+        * `PENDING_EVALUATION` - Pending Evaluation
+        * `BLOCKED` - Blocked by Policy
+        * `PENDING_APPROVAL` - Pending Operator Approval
+        * `APPROVED` - Approved for Co-Signing
+        * `REJECTED` - Rejected by Operator
+        * `CO_SIGNED` - Co-Signed by GuardRail
+        * `EXECUTED` - Executed on Stellar
+        * `FAILED` - Execution Failed
+    VerifySignatureRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 56
+        signature:
+          type: string
+          minLength: 1
+          description: Hex or Base64 encoded ed25519 signature of the challenge
+      required:
+      - address
+      - signature
+  securitySchemes:
+    AgentApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Agent-Key
+      description: AI Agent Secret API Key (prefix + secure token, e.g. gr_live_...)
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

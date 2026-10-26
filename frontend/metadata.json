@@ -1,0 +1,6 @@
+{
+  "name": "GuardRail - AI Agent Policy & Multisig Platform",
+  "description": "Autonomous AI agent policy controls and 2-of-3 multisig wallet execution platform on Stellar Testnet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
