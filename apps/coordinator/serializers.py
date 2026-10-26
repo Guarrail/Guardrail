@@ -19,6 +19,8 @@ class AgentSubmitRequestSerializer(serializers.Serializer):
     issuer = serializers.CharField(max_length=56, required=False, allow_blank=True, default=None)
     wallet_id = serializers.UUIDField(required=False, default=None)
     stellar_envelope_xdr = serializers.CharField(required=False, allow_blank=True, default="", help_text="Optional Stellar transaction envelope XDR signed by agent")
+    auto_execute = serializers.BooleanField(required=False, default=None, allow_null=True, help_text="Whether to auto-execute transaction if agent is in AUTONOMOUS mode and within policy limits")
+    mock_stellar = serializers.BooleanField(required=False, default=None, allow_null=True, help_text="Mock Stellar network execution flag for testing")
 
     def validate_recipient(self, value):
         if not is_valid_stellar_address(value):

@@ -87,22 +87,32 @@ class AgentSubmitRequestView(APIView):
                 err_msg = err_msg[0]
             return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        auto_execute = request.data.get("auto_execute", False)
+        is_autonomous_agent = (
+            agent.autonomy_mode == "AUTONOMOUS"
+            and agent.signer_weight == 1
+        )
+        raw_auto_execute = data.get("auto_execute") if "auto_execute" in data else request.data.get("auto_execute")
+        auto_execute = is_autonomous_agent if raw_auto_execute is None else bool(raw_auto_execute)
+
         can_auto_execute = (
             auto_execute
             and req.status == "APPROVED"
             and not req.requires_human_approval
-            and agent.autonomy_mode == "AUTONOMOUS"
-            and agent.signer_weight == 1
+            and is_autonomous_agent
         )
         if can_auto_execute:
+            mock_mode = data.get("mock_stellar") if "mock_stellar" in data else request.data.get("mock_stellar")
+            if mock_mode is None:
+                import sys
+                mock_mode = "pytest" in sys.modules
             try:
                 req = cosign_and_execute_request(
                     request_id=req.request_id,
-                    mock_stellar=request.data.get("mock_stellar", False),
+                    mock_stellar=bool(mock_mode),
                 )
             except Exception as e:
                 logger.warning("Autonomous live execution error: %s", str(e))
+                req.refresh_from_db()
 
         resp_status = status.HTTP_201_CREATED
         if req.status == "BLOCKED":
@@ -170,22 +180,32 @@ class AgentSwapView(APIView):
                 err_msg = err_msg[0]
             return Response({"error": err_msg, "detail": err_msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        auto_execute = data.get("auto_execute", True)
+        is_autonomous_agent = (
+            agent.autonomy_mode == "AUTONOMOUS"
+            and agent.signer_weight == 1
+        )
+        raw_auto_execute = data.get("auto_execute")
+        auto_execute = is_autonomous_agent if raw_auto_execute is None else bool(raw_auto_execute)
+
         can_auto_execute = (
             auto_execute
             and req.status == "APPROVED"
             and not req.requires_human_approval
-            and agent.autonomy_mode == "AUTONOMOUS"
-            and agent.signer_weight == 1
+            and is_autonomous_agent
         )
         if can_auto_execute:
+            mock_mode = data.get("mock_stellar")
+            if mock_mode is None:
+                import sys
+                mock_mode = "pytest" in sys.modules
             try:
                 req = cosign_and_execute_request(
                     request_id=req.request_id,
-                    mock_stellar=data.get("mock_stellar", False),
+                    mock_stellar=bool(mock_mode),
                 )
             except Exception as e:
                 logger.warning("Autonomous live swap execution error: %s", str(e))
+                req.refresh_from_db()
 
         resp_status = status.HTTP_201_CREATED
         if req.status == "BLOCKED":

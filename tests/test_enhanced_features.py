@@ -370,3 +370,56 @@ def test_create_agent_with_multiple_signing_wallets_and_multisig_approval(contro
     assert len(sign2_resp.json()["operator_signatures"]) == 3
 
 
+@pytest.mark.django_db
+def test_autonomous_mode_auto_broadcasts_without_human_action(ai_agent, controlled_wallet, recipient_address):
+    # 1. Autonomous agent within limits automatically broadcasts to Stellar
+    ai_agent.autonomy_mode = "AUTONOMOUS"
+    ai_agent.signer_weight = 1
+    ai_agent.save(update_fields=["autonomy_mode", "signer_weight"])
+
+    client = APIClient()
+    api_key = getattr(ai_agent, "raw_api_key", ai_agent.api_key)
+    client.credentials(HTTP_X_AGENT_KEY=api_key)
+
+    # 5 XLM is within daily budget (500) and below human approval threshold (15)
+    # Notice: NO auto_execute is passed; autonomous mode automatically broadcasts to Stellar!
+    req_payload = {
+        "recipient": recipient_address,
+        "amount": "5.0000000",
+        "asset": "XLM",
+    }
+    resp = client.post("/api/v1/agent/requests/", req_payload, format="json")
+    assert resp.status_code == 201
+    data = resp.json()
+
+    assert data["status"] == "EXECUTED"
+    assert data["requires_human_approval"] is False
+    assert data["stellar_tx_hash"] != ""
+    assert data["stellar_explorer_url"] != ""
+    assert data["permit"]["status"] == "USED"
+    assert data["permit"]["is_single_use_consumed"] is True
+
+    # 2. If explicitly passed auto_execute=False, it stages as APPROVED without broadcast
+    stage_payload = {
+        "recipient": recipient_address,
+        "amount": "3.0000000",
+        "asset": "XLM",
+        "auto_execute": False,
+    }
+    stage_resp = client.post("/api/v1/agent/requests/", stage_payload, format="json")
+    assert stage_resp.status_code == 201
+    assert stage_resp.json()["status"] == "APPROVED"
+
+    # 3. If amount exceeds human approval threshold (20 > 15), human approval is required
+    high_payload = {
+        "recipient": recipient_address,
+        "amount": "20.0000000",
+        "asset": "XLM",
+    }
+    high_resp = client.post("/api/v1/agent/requests/", high_payload, format="json")
+    assert high_resp.status_code == 201
+    assert high_resp.json()["status"] == "PENDING_APPROVAL"
+    assert high_resp.json()["requires_human_approval"] is True
+
+
+

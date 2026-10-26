@@ -105,7 +105,7 @@ def test_agent_submit_request_endpoint_authenticated(api_client, ai_agent):
     }
     response = api_client.post("/api/v1/agent/requests/", payload, format="json")
     assert response.status_code == 201
-    assert response.data["status"] == "APPROVED"
+    assert response.data["status"] in ("APPROVED", "EXECUTED")
     assert "permit" in response.data
     assert response.data["permit"]["amount"] == "10.0000000"
 
