@@ -3,7 +3,14 @@
  * Replaces all static/mock placeholder data with real endpoints on the Django REST Framework coordinator.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+function getApiBaseUrl(): string {
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
+  if (!envUrl) return '';
+  // Strip trailing /api/v1 or /api or trailing slashes so `${API_BASE_URL}${url}` where url begins with `/api/v1` doesn't get doubled
+  return envUrl.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});

@@ -1,0 +1,180 @@
+# Dokploy Production Docker Compose for GuardRail Platform
+# Self-hosted PaaS deployment without Nginx (Traefik reverse proxy managed by Dokploy)
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-guardrail_db}
+      POSTGRES_USER: ${POSTGRES_USER:-guardrail_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guardrail_secret_pass_2026}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-guardrail_user} -d ${POSTGRES_DB:-guardrail_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    expose:
+      - "8000"
+    volumes:
+      - media_data:/app/media
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DJANGO_DEBUG=False
+      - POSTGRES_HOST=db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - RUN_MIGRATIONS=true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.guardrail-api.rule=Host(`${API_DOMAIN:-api.guardraill.xyz}`)"
+      - "traefik.http.routers.guardrail-api.entrypoints=websecure"
+      - "traefik.http.routers.guardrail-api.tls=true"
+      - "traefik.http.routers.guardrail-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.guardrail-api.loadbalancer.server.port=8000"
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A config worker -l info --concurrency=4
+    volumes:
+      - media_data:/app/media
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - POSTGRES_HOST=db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - RUN_MIGRATIONS=false
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A config beat -l info
+    volumes:
+      - media_data:/app/media
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - POSTGRES_HOST=db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - RUN_MIGRATIONS=false
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  soroban_indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: python manage.py run_soroban_event_listener
+    volumes:
+      - media_data:/app/media
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - POSTGRES_HOST=db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - RUN_MIGRATIONS=false
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.guardraill.xyz/api/v1}
+        VITE_FRONTEND_URL: ${VITE_FRONTEND_URL:-https://guardraill.xyz}
+        VITE_VPS_IP: ${VITE_VPS_IP:-}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - internal
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.guardrail-frontend.rule=Host(`${FRONTEND_DOMAIN:-guardraill.xyz}`) || Host(`www.${FRONTEND_DOMAIN:-guardraill.xyz}`)"
+      - "traefik.http.routers.guardrail-frontend.entrypoints=websecure"
+      - "traefik.http.routers.guardrail-frontend.tls=true"
+      - "traefik.http.routers.guardrail-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.guardrail-frontend.loadbalancer.server.port=3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+
+networks:
+  dokploy-network:
+    external: true
+  internal:
+    driver: bridge

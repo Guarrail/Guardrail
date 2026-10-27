@@ -102,15 +102,15 @@ elif os.getenv("DATABASE_URL"):
             "PORT": str(url.port or 5432),
         }
     }
-elif os.getenv("DB_HOST") or os.getenv("DB_ENGINE") in ("django.db.backends.postgresql", "postgresql", "postgres") or os.getenv("POSTGRES_DB"):
+elif os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST") or os.getenv("DB_ENGINE") in ("django.db.backends.postgresql", "postgresql", "postgres") or os.getenv("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME") or os.getenv("POSTGRES_DB", "guardrail_db"),
-            "USER": os.getenv("DB_USER") or os.getenv("POSTGRES_USER", "guardrail_user"),
-            "PASSWORD": os.getenv("DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD", "guardrail_secure_password"),
-            "HOST": os.getenv("DB_HOST", "db"),
-            "PORT": os.getenv("DB_PORT", "5432"),
+            "NAME": os.getenv("POSTGRES_DB") or os.getenv("DB_NAME", "guardrail_db"),
+            "USER": os.getenv("POSTGRES_USER") or os.getenv("DB_USER", "guardrail_user"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD") or os.getenv("DB_PASSWORD", "guardrail_secure_password"),
+            "HOST": os.getenv("POSTGRES_HOST") or os.getenv("DB_HOST", "db"),
+            "PORT": os.getenv("POSTGRES_PORT") or os.getenv("DB_PORT", "5432"),
         }
     }
 else:
@@ -145,21 +145,41 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Traefik / Reverse Proxy SSL & Header Forwarding
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+
 from corsheaders.defaults import default_headers
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "True").lower() in ("true", "1", "yes")
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-agent-key",
 ]
-CORS_ALLOWED_ORIGINS = [
+
+_default_cors_origins = [
+    "https://guardraill.xyz",
+    "https://www.guardraill.xyz",
+    "https://api.guardraill.xyz",
+    "http://guardraill.xyz",
+    "http://www.guardraill.xyz",
+    "http://api.guardraill.xyz",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ]
+_extra_cors = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(_default_cors_origins + _extra_cors))
 
-CSRF_TRUSTED_ORIGINS = [
+_default_csrf_origins = [
+    "https://guardraill.xyz",
+    "https://www.guardraill.xyz",
+    "https://api.guardraill.xyz",
+    "http://guardraill.xyz",
+    "http://www.guardraill.xyz",
+    "http://api.guardraill.xyz",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
@@ -171,6 +191,18 @@ CSRF_TRUSTED_ORIGINS = [
     "https://localhost:3000",
     "https://127.0.0.1:3000",
 ]
+_extra_csrf = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_default_csrf_origins + _extra_csrf))
+
+# Celery & Redis Configuration
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
 
 # Django REST Framework Settings
 REST_FRAMEWORK = {
