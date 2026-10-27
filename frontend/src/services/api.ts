@@ -3,14 +3,52 @@
  * Replaces all static/mock placeholder data with real endpoints on the Django REST Framework coordinator.
  */
 
-function getApiBaseUrl(): string {
+export function getPublicApiBaseUrl(): string {
+  // 1. Check environment variables from Vite build
   const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
-  if (!envUrl) return '';
-  // Strip trailing /api/v1 or /api or trailing slashes so `${API_BASE_URL}${url}` where url begins with `/api/v1` doesn't get doubled
-  return envUrl.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+  if (envUrl) {
+    const cleaned = envUrl.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      return `${cleaned}/api/v1`;
+    }
+  }
+
+  // 2. In browser window context, dynamically infer from current host
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    // Direct match for guardraill domain
+    if (host === 'guardraill.xyz' || host === 'www.guardraill.xyz' || host.endsWith('.guardraill.xyz')) {
+      return 'https://api.guardraill.xyz/api/v1';
+    }
+    // Local development
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return `${window.location.protocol}//${host}:8000/api/v1`;
+    }
+    // Fallback for custom deployments: api.<domain>
+    const rootDomain = host.replace(/^www\./, '');
+    return `${window.location.protocol}//api.${rootDomain}/api/v1`;
+  }
+
+  return 'https://api.guardraill.xyz/api/v1';
 }
 
-const API_BASE_URL = getApiBaseUrl();
+function getApiBaseUrl(): string {
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl) {
+    return envUrl.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    if (host === 'guardraill.xyz' || host === 'www.guardraill.xyz' || host.endsWith('.guardraill.xyz')) {
+      return 'https://api.guardraill.xyz';
+    }
+  }
+
+  return '';
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});

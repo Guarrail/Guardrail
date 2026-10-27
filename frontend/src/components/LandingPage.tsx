@@ -54,10 +54,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   const handleCopyApi = () => {
-    navigator.clipboard.writeText(`curl -X POST https://api.guardrail.stellar/v1/requests \\
-  -H "Authorization: Bearer gr_live_7f3k29xq" \\
+    navigator.clipboard.writeText(`curl -X POST https://api.guardraill.xyz/api/v1/agent/requests/ \\
+  -H "X-Agent-Key: gr_live_7f3k29xq" \\
   -H "Content-Type: application/json" \\
-  -d '{"agent_id":"agt_7f3k29xq","destination":"GDQP3X7KMN2WRZ8YL4HBVT5JCEF9SA6UQ2NLKO7MXPG4RYW9TBJE","asset":"USDC","amount":"750.00"}'`);
+  -d '{"recipient":"GDQP3X7KMN2WRZ8YL4HBVT5JCEF9SA6UQ2NLKO7MXPG4RYW9TBJE","asset":"USDC","amount":"750.00"}'`);
     setCopiedApi(true);
     setTimeout(() => setCopiedApi(false), 2000);
   };
@@ -650,7 +650,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="flex items-center justify-between pb-4 mb-4 border-b border-[#2B3340]">
                 <div className="flex items-center gap-2 text-[#4AC777]">
                   <Terminal className="w-4 h-4" />
-                  <span className="font-space font-normal text-sm text-[#4AC777]">POST /v1/requests</span>
+                  <span className="font-space font-normal text-sm text-[#4AC777]">POST /api/v1/agent/requests/</span>
                 </div>
                 <button
                   onClick={handleCopyApi}
@@ -661,7 +661,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
 
               <div className="font-space font-medium text-sm text-white mb-1">
-                Authorization: Bearer gr_live_7f3k…
+                X-Agent-Key: gr_live_7f3k…
               </div>
               <div className="font-space font-medium text-sm text-white mb-4">
                 Content-Type: application/json

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ApiAgent, ApiPolicy, ApiTransactionRequest, api } from '../services/api';
+import { ApiAgent, ApiPolicy, ApiTransactionRequest, api, getPublicApiBaseUrl } from '../services/api';
 import {
   Bot,
   Key,
@@ -216,14 +216,17 @@ export const AgentApiConfigModal: React.FC<AgentApiConfigModalProps> = ({
     }
   };
 
+  // Dynamically resolved public API Base URL (e.g. https://api.guardraill.xyz/api/v1)
+  const apiBase = getPublicApiBaseUrl();
+
   // Direct Payment Code Snippets
   const curlSnippet = `# 1. Query active policy limits and remaining daily budget
-curl -X GET "http://localhost:8000/api/v1/agent/policy-summary/" \\
+curl -X GET "${apiBase}/agent/policy-summary/" \\
   -H "X-Agent-Key: ${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}"
 
 # 2. Build & Submit Payment Request to GuardRail Coordinator
 # Tip: "request_id" is optional; omit it to auto-generate a fresh ID per transaction
-curl -X POST "http://localhost:8000/api/v1/agent/requests/" \\
+curl -X POST "${apiBase}/agent/requests/" \\
   -H "X-Agent-Key: ${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -235,7 +238,7 @@ curl -X POST "http://localhost:8000/api/v1/agent/requests/" \\
   const pythonSnippet = `import requests
 from stellar_sdk import Keypair, TransactionBuilder, Network, Payment, Asset
 
-API_BASE = "http://localhost:8000/api/v1"
+API_BASE = "${apiBase}"
 AGENT_KEY = "${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}"
 PDA_SECRET = "${effectiveSecretKey || 'S_YOUR_PDA_SECRET_KEY'}"
 
@@ -261,7 +264,7 @@ elif result.get("status") == "APPROVED":
 
   const nodeSnippet = `import fetch from 'node-fetch';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = '${apiBase}';
 const AGENT_KEY = '${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}';
 
 async function submitPayment() {
@@ -287,12 +290,12 @@ submitPayment();`;
 
   // DEX Token Swap Code Snippets
   const swapCurlSnippet = `# 1. Query active policy limits & allowed assets
-curl -X GET "http://localhost:8000/api/v1/agent/policy-summary/" \\
+curl -X GET "${apiBase}/agent/policy-summary/" \\
   -H "X-Agent-Key: ${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}"
 
 # 2. Execute or propose DEX / AMM Token Swap via GuardRail Policy Engine
 # Note: request_id is optional and auto-generated per trade
-curl -X POST "http://localhost:8000/api/v1/agent/swap/" \\
+curl -X POST "${apiBase}/agent/swap/" \\
   -H "X-Agent-Key: ${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -304,7 +307,7 @@ curl -X POST "http://localhost:8000/api/v1/agent/swap/" \\
 
   const swapPythonSnippet = `import requests
 
-API_BASE = "http://localhost:8000/api/v1"
+API_BASE = "${apiBase}"
 AGENT_KEY = "${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}"
 
 headers = {
@@ -333,7 +336,7 @@ elif result.get("status") == "PENDING_APPROVAL":
 
   const swapNodeSnippet = `import fetch from 'node-fetch';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = '${apiBase}';
 const AGENT_KEY = '${effectiveApiKey || 'gr_live_YOUR_AGENT_API_KEY'}';
 
 async function executeTokenSwap() {
@@ -612,6 +615,20 @@ executeTokenSwap();`;
 
               {/* Code Snippets Box */}
               <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold text-blue-400 text-[10px] uppercase shrink-0">Live API Endpoint:</span>
+                    <span className="font-mono text-[11px] text-blue-200 select-all truncate">{apiBase}</span>
+                  </div>
+                  <button
+                    onClick={() => copyText(apiBase, 'api_base_url')}
+                    className="p-1.5 hover:bg-blue-500/20 rounded-lg text-blue-300 transition-colors cursor-pointer shrink-0 ml-2"
+                    title="Copy API Endpoint"
+                  >
+                    {copiedKey === 'api_base_url' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-white/70 flex items-center gap-2">
                     <Code2 className="w-4 h-4 text-blue-400" />

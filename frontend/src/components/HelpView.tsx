@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getPublicApiBaseUrl } from '../services/api';
 import {
   HelpCircle,
   BookOpen,
@@ -38,6 +39,7 @@ interface HelpViewProps {
 
 export const HelpView: React.FC<HelpViewProps> = ({ onOpenSimulateModal }) => {
   const navigate = useNavigate();
+  const apiBase = getPublicApiBaseUrl();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'console' | 'agents' | 'multisig' | 'api' | 'faq'>('console');
   const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
@@ -82,46 +84,40 @@ export const HelpView: React.FC<HelpViewProps> = ({ onOpenSimulateModal }) => {
   ];
 
   const codeSnippets = {
-    curl: `curl -X POST https://api.guardrail.network/api/v1/coordinator/requests/ \\
+    curl: `curl -X POST ${apiBase}/agent/requests/ \\
   -H "Content-Type: application/json" \\
-  -H "X-Agent-Key: agy_live_xxxxxxxxxxxxxxxxxxxxxxxx" \\
+  -H "X-Agent-Key: gr_live_xxxxxxxxxxxxxxxxxxxxxxxx" \\
   -d '{
     "amount": "15.00",
     "asset": "XLM",
-    "destination": "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE",
-    "memo": "Payment for API compute",
-    "mock_stellar": false
+    "recipient": "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
   }'`,
     python: `import requests
 
-url = "https://api.guardrail.network/api/v1/coordinator/requests/"
+url = "${apiBase}/agent/requests/"
 headers = {
     "Content-Type": "application/json",
-    "X-Agent-Key": "agy_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+    "X-Agent-Key": "gr_live_xxxxxxxxxxxxxxxxxxxxxxxx"
 }
 payload = {
     "amount": "15.00",
     "asset": "XLM",
-    "destination": "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE",
-    "memo": "Payment for API compute",
-    "mock_stellar": False
+    "recipient": "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
 }
 
 response = requests.post(url, json=payload, headers=headers)
 print("Status:", response.status_code)
 print("Data:", response.json())`,
-    javascript: `const response = await fetch("https://api.guardrail.network/api/v1/coordinator/requests/", {
+    javascript: `const response = await fetch("${apiBase}/agent/requests/", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-Agent-Key": "agy_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+    "X-Agent-Key": "gr_live_xxxxxxxxxxxxxxxxxxxxxxxx"
   },
   body: JSON.stringify({
     amount: "15.00",
     asset: "XLM",
-    destination: "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE",
-    memo: "Payment for API compute",
-    mock_stellar: false
+    recipient: "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
   })
 });
 
