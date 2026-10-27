@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PolicyConfig } from '../types';
 import { api, ApiPolicy } from '../services/api';
@@ -11,6 +11,9 @@ import {
   Plus,
   Trash2,
   Lock,
+  Ban,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 
 interface EditPolicyPageProps {
@@ -32,62 +35,107 @@ export const EditPolicyPage: React.FC<EditPolicyPageProps> = ({
   const [newRecipientName, setNewRecipientName] = useState('');
   const [newRecipientAddress, setNewRecipientAddress] = useState('');
   const [recipientError, setRecipientError] = useState('');
+
+  // Blacklist state
+  const [newBlockedName, setNewBlockedName] = useState('');
+  const [newBlockedAddress, setNewBlockedAddress] = useState('');
+  const [newBlockedReason, setNewBlockedReason] = useState('');
+  const [blockedError, setBlockedError] = useState('');
+
   const [toastMessage, setToastMessage] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadPolicy = async () => {
-      try {
-        setLoading(true);
-        const data = await api.getPolicies();
-        const list = Array.isArray(data) ? data : (data as { results?: ApiPolicy[] })?.results || [];
-        const found = list.find((p) => p.id === policyId) || list[0];
-        if (found) {
-          setPolicyData(found);
-          const converted: PolicyConfig = {
-            id: found.id,
-            name: found.name,
-            description: found.description,
-            version: found.version,
-            maxPerTransaction: parseFloat(found.max_amount_per_tx),
-            dailyLimit: parseFloat(found.daily_spending_limit),
-            weeklyLimit: parseFloat(found.weekly_spending_limit),
-            dailySpent: localConfig.dailySpent || 0,
-            weeklySpent: localConfig.weeklySpent || 0,
-            approvalThreshold: parseFloat(found.human_approval_threshold),
-            requireHumanApproval: found.require_human_approval_always,
-            approvedRecipients: (found.allowed_recipients || []).map((r) => ({
-              id: r.id,
-              name: r.label || 'Approved Destination',
-              address: r.address,
-              addedDate: r.created_at,
-            })),
-            assetControls: (found.allowed_assets || []).map((a) => ({
-              id: a.id,
-              asset: a.asset_code,
-              issuer: a.issuer_address || 'Native',
-              enabled: a.is_active,
-              isNative: a.asset_code === 'XLM',
-            })),
-          };
-          setLocalConfig(converted);
-        }
-      } catch (err) {
-        console.warn('Error loading policy:', err);
-      } finally {
-        setLoading(false);
+  const loadPolicy = useCallback(async () => {
+    if (!policyId) return;
+    try {
+      setLoading(true);
+      const data = await api.getPolicies();
+      const list = Array.isArray(data) ? data : (data as { results?: ApiPolicy[] })?.results || [];
+      const found = list.find((p) => p.id === policyId) || list[0];
+      if (found) {
+        setPolicyData(found);
+        const converted: PolicyConfig = {
+          id: found.id,
+          name: found.name,
+          description: found.description,
+          version: found.version,
+          maxPerTransaction: parseFloat(found.max_amount_per_tx),
+          dailyLimit: parseFloat(found.daily_spending_limit),
+          weeklyLimit: parseFloat(found.weekly_spending_limit),
+          dailySpent: localConfig.dailySpent || 0,
+          weeklySpent: localConfig.weeklySpent || 0,
+          approvalThreshold: parseFloat(found.human_approval_threshold),
+          requireHumanApproval: found.require_human_approval_always,
+          approvedRecipients: (found.allowed_recipients || []).map((r) => ({
+            id: r.id,
+            name: r.label || 'Approved Destination',
+            address: r.address,
+            addedDate: r.created_at,
+          })),
+          blockedRecipients: (found.blocked_recipients || []).map((b) => ({
+            id: b.id,
+            name: b.label || 'Blocked Wallet',
+            address: b.address,
+            reason: b.reason || 'Prohibited destination',
+            addedDate: b.created_at,
+          })),
+          assetControls: (found.allowed_assets || []).map((a) => ({
+            id: a.id,
+            asset: a.asset_code,
+            issuer: a.issuer_address || 'Native',
+            enabled: a.is_active,
+            isNative: a.asset_code === 'XLM',
+          })),
+        };
+        setLocalConfig(converted);
       }
-    };
+    } catch (err) {
+      console.warn('Error loading policy:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [policyId]);
 
+  useEffect(() => {
     if (policyId) {
       loadPolicy();
     }
-  }, [policyId]);
+  }, [policyId, loadPolicy]);
 
   const handleSave = async () => {
     try {
       if (policyId) {
+        // Automatically save any pending typed blocked wallet if user clicked save directly
+        if (newBlockedAddress.trim()) {
+          const addr = newBlockedAddress.trim();
+          if (addr.startsWith('G') && addr.length === 56) {
+            await api.addBlockedRecipient(policyId, {
+              address: addr,
+              label: newBlockedName.trim() || 'Blocked Wallet',
+              reason: newBlockedReason.trim() || 'Prohibited destination',
+            });
+            setNewBlockedName('');
+            setNewBlockedAddress('');
+            setNewBlockedReason('');
+            setBlockedError('');
+          }
+        }
+
+        // Automatically save any pending typed allowed recipient if user clicked save directly
+        if (newRecipientAddress.trim()) {
+          const addr = newRecipientAddress.trim();
+          if (addr.startsWith('G') && addr.length >= 20) {
+            await api.addRecipient(policyId, {
+              address: addr,
+              label: newRecipientName.trim() || 'Approved Recipient',
+            });
+            setNewRecipientName('');
+            setNewRecipientAddress('');
+            setRecipientError('');
+          }
+        }
+
         await api.updatePolicy(policyId, {
           name: localConfig.name,
           max_amount_per_tx: localConfig.maxPerTransaction.toString(),
@@ -96,6 +144,8 @@ export const EditPolicyPage: React.FC<EditPolicyPageProps> = ({
           human_approval_threshold: localConfig.approvalThreshold.toString(),
           require_human_approval_always: localConfig.requireHumanApproval,
         });
+
+        await loadPolicy();
       }
       setPolicyConfig({ ...localConfig });
       setSaveSuccess(true);
@@ -122,39 +172,112 @@ export const EditPolicyPage: React.FC<EditPolicyPageProps> = ({
 
     setRecipientError('');
     try {
+      let createdId = `rec_${Date.now()}`;
       if (policyId) {
-        await api.addRecipient(policyId, {
+        const res = await api.addRecipient(policyId, {
           address: newRecipientAddress.trim(),
           label: newRecipientName.trim(),
         });
+        if (res && res.id) createdId = res.id;
       }
+      setLocalConfig((prev) => ({
+        ...prev,
+        approvedRecipients: [
+          ...prev.approvedRecipients,
+          {
+            id: createdId,
+            name: newRecipientName.trim(),
+            address: newRecipientAddress.trim(),
+            addedDate: 'Today',
+          },
+        ],
+      }));
+      setNewRecipientName('');
+      setNewRecipientAddress('');
+      setToastMessage('Recipient added to allowlist & synced to contract.');
+      setTimeout(() => setToastMessage(''), 2500);
     } catch (err) {
-      console.warn('Add recipient error:', err);
+      setRecipientError(err instanceof Error ? err.message : 'Failed to add recipient');
     }
-
-    setLocalConfig((prev) => ({
-      ...prev,
-      approvedRecipients: [
-        ...prev.approvedRecipients,
-        {
-          id: `rec_${Date.now()}`,
-          name: newRecipientName.trim(),
-          address: newRecipientAddress.trim(),
-          addedDate: 'Today',
-        },
-      ],
-    }));
-    setNewRecipientName('');
-    setNewRecipientAddress('');
-    setToastMessage('Recipient added to allowlist.');
-    setTimeout(() => setToastMessage(''), 2500);
   };
 
-  const handleRemoveRecipient = (id: string) => {
-    setLocalConfig((prev) => ({
-      ...prev,
-      approvedRecipients: prev.approvedRecipients.filter((r) => r.id !== id),
-    }));
+  const handleRemoveRecipient = async (id: string) => {
+    try {
+      if (id && !id.startsWith('rec_')) {
+        await api.deleteRecipient(id);
+      }
+      setLocalConfig((prev) => ({
+        ...prev,
+        approvedRecipients: prev.approvedRecipients.filter((r) => r.id !== id),
+      }));
+      setToastMessage('Recipient removed from allowlist.');
+      setTimeout(() => setToastMessage(''), 2500);
+    } catch (err) {
+      setToastMessage(`Failed to remove: ${err instanceof Error ? err.message : String(err)}`);
+      setTimeout(() => setToastMessage(''), 3000);
+    }
+  };
+
+  const handleAddBlockedRecipient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBlockedAddress.trim()) {
+      setBlockedError('Please provide a Stellar address');
+      return;
+    }
+    if (!newBlockedAddress.trim().startsWith('G') || newBlockedAddress.trim().length !== 56) {
+      setBlockedError('Stellar addresses must start with G and be 56 characters');
+      return;
+    }
+
+    setBlockedError('');
+    try {
+      let createdId = `blk_${Date.now()}`;
+      if (policyId) {
+        const res = await api.addBlockedRecipient(policyId, {
+          address: newBlockedAddress.trim(),
+          label: newBlockedName.trim() || 'Blocked Wallet',
+          reason: newBlockedReason.trim() || 'Prohibited destination',
+        });
+        if (res && res.id) createdId = res.id;
+      }
+      setLocalConfig((prev) => ({
+        ...prev,
+        blockedRecipients: [
+          ...(prev.blockedRecipients || []),
+          {
+            id: createdId,
+            name: newBlockedName.trim() || 'Blocked Wallet',
+            address: newBlockedAddress.trim(),
+            reason: newBlockedReason.trim() || 'Prohibited destination',
+            addedDate: 'Today',
+          },
+        ],
+      }));
+      setNewBlockedName('');
+      setNewBlockedAddress('');
+      setNewBlockedReason('');
+      setToastMessage('Blocked wallet added to blacklist & synced to Soroban contract.');
+      setTimeout(() => setToastMessage(''), 3000);
+    } catch (err) {
+      setBlockedError(err instanceof Error ? err.message : 'Failed to add blocked recipient');
+    }
+  };
+
+  const handleRemoveBlockedRecipient = async (id: string) => {
+    try {
+      if (id && !id.startsWith('blk_')) {
+        await api.deleteBlockedRecipient(id);
+      }
+      setLocalConfig((prev) => ({
+        ...prev,
+        blockedRecipients: (prev.blockedRecipients || []).filter((r) => r.id !== id),
+      }));
+      setToastMessage('Blocked wallet removed from blacklist.');
+      setTimeout(() => setToastMessage(''), 2500);
+    } catch (err) {
+      setToastMessage(`Failed to remove: ${err instanceof Error ? err.message : String(err)}`);
+      setTimeout(() => setToastMessage(''), 3000);
+    }
   };
 
   const handleToggleAsset = (id: string) => {
@@ -425,6 +548,93 @@ export const EditPolicyPage: React.FC<EditPolicyPageProps> = ({
             >
               <Plus className="w-3.5 h-3.5 text-emerald-400" />
               <span>Add Recipient</span>
+            </button>
+          </form>
+        </div>
+
+        {/* CARD 4: PROHIBITED DESTINATIONS / BLACKLIST */}
+        <div className="p-6 sm:p-7 bg-white/[0.03] backdrop-blur-2xl border border-rose-500/20 rounded-2xl flex flex-col gap-4 shadow-[0_8px_32px_rgba(0,0,0,0.36),inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Ban className="w-4 h-4 text-rose-400" />
+                <h3 className="font-space text-lg font-bold text-white tracking-tight">Prohibited Destinations Blacklist</h3>
+              </div>
+              <p className="text-xs text-white/50 mt-0.5">Wallets that AI agents governed by this policy are strictly forbidden to transfer tokens to.</p>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              Soroban Smart Contract Enforced
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
+            {(localConfig.blockedRecipients || []).length === 0 ? (
+              <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl text-center text-xs text-white/40">
+                No blacklisted addresses yet. Transactions to restricted wallets can be prohibited below.
+              </div>
+            ) : (
+              (localConfig.blockedRecipients || []).map((rec) => (
+                <div
+                  key={rec.id}
+                  className="p-3 bg-rose-500/[0.04] border border-rose-500/20 hover:border-rose-500/40 rounded-xl flex items-center justify-between gap-3 transition-all"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-rose-300 truncate">{rec.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-200 font-mono">
+                        {rec.reason || 'Prohibited destination'}
+                      </span>
+                    </div>
+                    <div className="font-mono text-[11px] text-white/45 truncate mt-0.5">{rec.address}</div>
+                  </div>
+
+                  <button
+                    onClick={() => handleRemoveBlockedRecipient(rec.id)}
+                    className="px-2.5 py-1 text-xs font-semibold text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg border border-rose-500/20 transition-all shrink-0 cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Add Blocked Recipient Form */}
+          <form onSubmit={handleAddBlockedRecipient} className="mt-2 pt-3 border-t border-white/[0.08] flex flex-col gap-2.5">
+            <span className="text-xs font-semibold text-rose-300">Add Wallet to Blacklist</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                placeholder="Stellar address (G...)"
+                value={newBlockedAddress}
+                onChange={(e) => {
+                  setNewBlockedAddress(e.target.value);
+                  setBlockedError('');
+                }}
+                className="px-3.5 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-rose-500 transition-all"
+              />
+              <input
+                type="text"
+                placeholder="Label (e.g. Flagged Bad Actor)"
+                value={newBlockedName}
+                onChange={(e) => setNewBlockedName(e.target.value)}
+                className="px-3.5 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 transition-all"
+              />
+              <input
+                type="text"
+                placeholder="Reason (e.g. Security flag)"
+                value={newBlockedReason}
+                onChange={(e) => setNewBlockedReason(e.target.value)}
+                className="px-3.5 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 transition-all"
+              />
+            </div>
+            {blockedError && <span className="text-[11px] text-rose-400 font-medium">{blockedError}</span>}
+            <button
+              type="submit"
+              className="mt-1 px-4 py-2 bg-rose-600/30 hover:bg-rose-600 active:bg-rose-700 border border-rose-500/40 text-xs font-bold text-rose-200 hover:text-white rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer self-start shadow-xs active:scale-95"
+            >
+              <Ban className="w-3.5 h-3.5 text-rose-400" />
+              <span>Add to Blacklist & Sync Contract</span>
             </button>
           </form>
         </div>

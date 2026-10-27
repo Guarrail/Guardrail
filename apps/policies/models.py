@@ -78,6 +78,22 @@ class AllowedRecipient(BaseModel):
         return f"AllowedRecipient({self.label or self.address[:8]})"
 
 
+class BlockedRecipient(BaseModel):
+    """Prohibited/blacklisted destination address for an active policy."""
+
+    policy = models.ForeignKey(Policy, on_delete=models.CASCADE, related_name="blocked_recipients")
+    address = models.CharField(max_length=56, db_index=True)
+    label = models.CharField(max_length=150, blank=True, default="")
+    reason = models.CharField(max_length=255, blank=True, default="Blacklisted address")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("policy", "address")
+
+    def __str__(self):
+        return f"BlockedRecipient({self.label or self.address[:8]})"
+
+
 class AllowedAsset(BaseModel):
     """Permitted asset for an active policy."""
 

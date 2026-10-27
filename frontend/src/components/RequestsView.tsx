@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AgentRequest, RequestFilter } from '../types';
 import {
   Search,
@@ -23,16 +23,31 @@ interface RequestsViewProps {
   requests: AgentRequest[];
   onSelectRequest: (req: AgentRequest) => void;
   onOpenSimulateModal?: () => void;
+  onRefreshRequests?: () => void;
 }
 
 export const RequestsView: React.FC<RequestsViewProps> = ({
   requests,
   onSelectRequest,
   onOpenSimulateModal,
+  onRefreshRequests,
 }) => {
   const [activeFilter, setActiveFilter] = useState<RequestFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Automatic real-time polling every 3 seconds
+  useEffect(() => {
+    if (onRefreshRequests) {
+      onRefreshRequests();
+    }
+    const interval = setInterval(() => {
+      if (onRefreshRequests) {
+        onRefreshRequests();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [onRefreshRequests]);
 
   const pendingCount = requests.filter((r) => r.status === 'Pending').length;
   const executedCount = requests.filter((r) => r.status === 'Executed').length;
@@ -90,6 +105,10 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/[0.06] border border-white/[0.1] text-white/70">
               {requests.length} Total
             </span>
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 border border-emerald-500/25 text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Live Auto-Sync (3s)</span>
+            </div>
           </div>
           <p className="text-xs sm:text-sm text-white/50 mt-1 max-w-2xl leading-relaxed">
             Monitor autonomous agent payments, evaluate rule compliance, and authorize multisig transactions for live Stellar execution.

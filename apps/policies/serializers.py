@@ -1,12 +1,24 @@
 from rest_framework import serializers
 from apps.core.stellar import is_valid_stellar_address
-from .models import Policy, AllowedRecipient, AllowedAsset, SpendingLedger
+from .models import Policy, AllowedRecipient, BlockedRecipient, AllowedAsset, SpendingLedger
 
 
 class AllowedRecipientSerializer(serializers.ModelSerializer):
     class Meta:
         model = AllowedRecipient
         fields = ["id", "policy", "address", "label", "is_active", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_address(self, value):
+        if not is_valid_stellar_address(value):
+            raise serializers.ValidationError("Invalid Stellar recipient address.")
+        return value
+
+
+class BlockedRecipientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BlockedRecipient
+        fields = ["id", "policy", "address", "label", "reason", "is_active", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def validate_address(self, value):
@@ -33,6 +45,7 @@ class AllowedAssetSerializer(serializers.ModelSerializer):
 
 class PolicySerializer(serializers.ModelSerializer):
     allowed_recipients = AllowedRecipientSerializer(many=True, read_only=True)
+    blocked_recipients = BlockedRecipientSerializer(many=True, read_only=True)
     allowed_assets = AllowedAssetSerializer(many=True, read_only=True)
 
     class Meta:
@@ -49,6 +62,7 @@ class PolicySerializer(serializers.ModelSerializer):
             "require_human_approval_always",
             "is_active",
             "allowed_recipients",
+            "blocked_recipients",
             "allowed_assets",
             "created_at",
             "updated_at",
@@ -65,6 +79,72 @@ class PolicySerializer(serializers.ModelSerializer):
         if daily and weekly and daily > weekly:
             raise serializers.ValidationError({"daily_spending_limit": "Daily limit cannot exceed weekly limit."})
         return data
+
+    def create(self, validated_data):
+        allowed_recipients_data = self.initial_data.get("allowed_recipients", [])
+        blocked_recipients_data = self.initial_data.get("blocked_recipients", [])
+        policy = super().create(validated_data)
+
+        if allowed_recipients_data:
+            for item in allowed_recipients_data:
+                addr = (item.get("address") if isinstance(item, dict) else str(item)) or ""
+                addr = addr.strip()
+                label = (item.get("label") if isinstance(item, dict) else "") or "Approved Destination"
+                if addr and is_valid_stellar_address(addr):
+                    AllowedRecipient.objects.get_or_create(policy=policy, address=addr, defaults={"label": label, "is_active": True})
+
+        if blocked_recipients_data:
+            for item in blocked_recipients_data:
+                addr = (item.get("address") if isinstance(item, dict) else str(item)) or ""
+                addr = addr.strip()
+                label = (item.get("label") if isinstance(item, dict) else "") or "Blocked Wallet"
+                reason = (item.get("reason") if isinstance(item, dict) else "") or "Prohibited destination"
+                if addr and is_valid_stellar_address(addr):
+                    BlockedRecipient.objects.get_or_create(policy=policy, address=addr, defaults={"label": label, "reason": reason, "is_active": True})
+
+        try:
+            from apps.smart_contracts.services import SorobanGuardrailClient
+            allowed_addrs = list(policy.allowed_recipients.filter(is_active=True).values_list("address", flat=True))
+            blocked_addrs = list(policy.blocked_recipients.filter(is_active=True).values_list("address", flat=True))
+            SorobanGuardrailClient().sync_policy_recipients_to_contract(str(policy.id), allowed_addrs, blocked_addrs)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to sync policy recipients to contract on create: %s", str(e))
+
+        return policy
+
+    def update(self, instance, validated_data):
+        allowed_recipients_data = self.initial_data.get("allowed_recipients")
+        blocked_recipients_data = self.initial_data.get("blocked_recipients")
+        policy = super().update(instance, validated_data)
+
+        if allowed_recipients_data is not None:
+            for item in allowed_recipients_data:
+                addr = (item.get("address") if isinstance(item, dict) else str(item)) or ""
+                addr = addr.strip()
+                label = (item.get("label") if isinstance(item, dict) else "") or "Approved Destination"
+                if addr and is_valid_stellar_address(addr):
+                    AllowedRecipient.objects.get_or_create(policy=policy, address=addr, defaults={"label": label, "is_active": True})
+
+        if blocked_recipients_data is not None:
+            for item in blocked_recipients_data:
+                addr = (item.get("address") if isinstance(item, dict) else str(item)) or ""
+                addr = addr.strip()
+                label = (item.get("label") if isinstance(item, dict) else "") or "Blocked Wallet"
+                reason = (item.get("reason") if isinstance(item, dict) else "") or "Prohibited destination"
+                if addr and is_valid_stellar_address(addr):
+                    BlockedRecipient.objects.get_or_create(policy=policy, address=addr, defaults={"label": label, "reason": reason, "is_active": True})
+
+        try:
+            from apps.smart_contracts.services import SorobanGuardrailClient
+            allowed_addrs = list(policy.allowed_recipients.filter(is_active=True).values_list("address", flat=True))
+            blocked_addrs = list(policy.blocked_recipients.filter(is_active=True).values_list("address", flat=True))
+            SorobanGuardrailClient().sync_policy_recipients_to_contract(str(policy.id), allowed_addrs, blocked_addrs)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to sync policy recipients to contract on update: %s", str(e))
+
+        return policy
 
 
 class SpendingStatusSerializer(serializers.Serializer):

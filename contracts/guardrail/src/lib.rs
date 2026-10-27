@@ -31,6 +31,7 @@ pub enum GuardrailError {
     WeeklyLimitExceeded = 11,
     InvalidAmount = 12,
     Unauthorized = 13,
+    RecipientBlacklisted = 14,
 }
 
 #[contract]
@@ -84,6 +85,27 @@ impl GuardrailContract {
         Self::require_admin(&e);
         e.storage().persistent().set(&DataKey::AllowedRecipient(recipient.clone()), &allowed);
         e.events().publish((symbol_short!("rec_upd"), recipient), allowed);
+    }
+
+    /// Add or remove an address from the prohibited recipient blacklist.
+    pub fn set_blocked_recipient_status(e: Env, recipient: Address, blocked: bool) {
+        Self::require_admin(&e);
+        e.storage().persistent().set(&DataKey::BlockedRecipient(recipient.clone()), &blocked);
+        e.events().publish((symbol_short!("blk_upd"), recipient), blocked);
+    }
+
+    /// Configure a multisig signer's weight in the smart contract.
+    pub fn set_signer_weight(e: Env, signer: Address, weight: u32) {
+        Self::require_admin(&e);
+        e.storage().persistent().set(&DataKey::SignerWeight(signer.clone()), &weight);
+        e.events().publish((symbol_short!("sig_upd"), signer), weight);
+    }
+
+    /// Configure the required multisig threshold in the smart contract.
+    pub fn set_required_weight(e: Env, weight: u32) {
+        Self::require_admin(&e);
+        e.storage().instance().set(&DataKey::RequiredMultisigWeight, &weight);
+        e.events().publish((symbol_short!("req_upd"),), weight);
     }
 
     /// Add or remove an asset token from the approved asset allowlist.
@@ -165,7 +187,12 @@ impl GuardrailContract {
             panic_with_error!(&e, GuardrailError::PermitAlreadyUsed);
         }
 
-        // 6. Recipient allowlist check
+        // 6. Recipient blacklist check
+        if Self::is_recipient_blocked(e.clone(), recipient.clone()) {
+            panic_with_error!(&e, GuardrailError::RecipientBlacklisted);
+        }
+
+        // 7. Recipient allowlist check
         if !Self::is_recipient_allowed(e.clone(), recipient.clone()) {
             panic_with_error!(&e, GuardrailError::RecipientNotAllowed);
         }
@@ -268,6 +295,18 @@ impl GuardrailContract {
 
     pub fn is_recipient_allowed(e: Env, recipient: Address) -> bool {
         e.storage().persistent().get(&DataKey::AllowedRecipient(recipient)).unwrap_or(false)
+    }
+
+    pub fn is_recipient_blocked(e: Env, recipient: Address) -> bool {
+        e.storage().persistent().get(&DataKey::BlockedRecipient(recipient)).unwrap_or(false)
+    }
+
+    pub fn get_signer_weight(e: Env, signer: Address) -> u32 {
+        e.storage().persistent().get(&DataKey::SignerWeight(signer)).unwrap_or(0)
+    }
+
+    pub fn get_required_weight(e: Env) -> u32 {
+        e.storage().instance().get(&DataKey::RequiredMultisigWeight).unwrap_or(2)
     }
 
     pub fn is_token_allowed(e: Env, token: Address) -> bool {

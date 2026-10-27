@@ -13,7 +13,7 @@ from apps.audit.models import record_audit_event
 from apps.agents.authentication import AgentAPIKeyAuthentication
 from apps.agents.models import AIAgent
 from apps.wallets.models import ControlledWallet
-from apps.policies.models import SpendingLedger
+from apps.policies.models import SpendingLedger, Policy
 from .models import TransactionRequest, Permit
 from .serializers import (
     AgentSubmitRequestSerializer,
@@ -484,7 +484,7 @@ class DashboardStatsView(APIView):
         active_agents = AIAgent.objects.filter(status="ACTIVE").count()
         pending_approvals = TransactionRequest.objects.filter(status="PENDING_APPROVAL").count()
         approved_transactions = TransactionRequest.objects.filter(status="APPROVED").count()
-        blocked_transactions = TransactionRequest.objects.filter(status="BLOCKED").count()
+        blocked_transactions = TransactionRequest.objects.filter(status__in=["BLOCKED", "REJECTED"]).count()
         executed_transactions = TransactionRequest.objects.filter(status="EXECUTED").count()
 
         spent_daily = Decimal("0.0000000")
@@ -492,8 +492,15 @@ class DashboardStatsView(APIView):
         spent_weekly = Decimal("0.0000000")
         weekly_limit = Decimal("0.0000000")
 
+        active_policy = Policy.objects.filter(is_active=True).first() or Policy.objects.order_by("-updated_at").first()
+
         if wallet:
-            ledger = SpendingLedger.objects.filter(wallet=wallet).first()
+            ledger = None
+            if active_policy:
+                ledger = SpendingLedger.objects.filter(wallet=wallet, policy=active_policy).first()
+            if not ledger:
+                ledger = SpendingLedger.objects.filter(wallet=wallet).first()
+
             if ledger:
                 ledger.sync_windows()
                 spent_daily = ledger.spent_daily
@@ -501,6 +508,10 @@ class DashboardStatsView(APIView):
                 if ledger.policy:
                     daily_limit = ledger.policy.daily_spending_limit
                     weekly_limit = ledger.policy.weekly_spending_limit
+
+        if daily_limit == Decimal("0.0000000") and active_policy:
+            daily_limit = active_policy.daily_spending_limit
+            weekly_limit = active_policy.weekly_spending_limit
 
         return Response(
             {

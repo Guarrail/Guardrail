@@ -7,7 +7,8 @@ export type TabView =
   | 'ai-agent'
   | 'wallet-security'
   | 'audit-log'
-  | 'settings';
+  | 'settings'
+  | 'help';
 
 export type RequestFilter = 
   | 'all' 
@@ -83,6 +84,13 @@ export interface PolicyConfig {
     id: string;
     name: string;
     address: string;
+    addedDate?: string;
+  }>;
+  blockedRecipients?: Array<{
+    id: string;
+    name: string;
+    address: string;
+    reason?: string;
     addedDate?: string;
   }>;
   assetControls: Array<{

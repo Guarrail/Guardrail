@@ -8,7 +8,7 @@ import {
   OperatorWalletState,
   WalletSigner,
 } from './types';
-import { api, ApiTransactionRequest, ApiPolicy, ApiControlledWallet } from './services/api';
+import { api, ApiTransactionRequest, ApiPolicy, ApiControlledWallet, ApiDashboardStats } from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { LandingPage } from './components/LandingPage';
@@ -22,6 +22,7 @@ import { WalletSecurityView } from './components/WalletSecurityView';
 import { AIAgentView } from './components/AIAgentView';
 import { AuditLogView } from './components/AuditLogView';
 import { SettingsView } from './components/SettingsView';
+import { HelpView } from './components/HelpView';
 import { RequestDetailModal } from './components/RequestDetailModal';
 import { SimulateRequestModal } from './components/SimulateRequestModal';
 import { AuthModal } from './components/AuthModal';
@@ -242,6 +243,7 @@ export default function App() {
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [controlledWallet, setControlledWallet] = useState<ControlledWalletState>(DEFAULT_CONTROLLED);
+  const [dashboardStats, setDashboardStats] = useState<ApiDashboardStats | null>(null);
   const [signers, setSigners] = useState<WalletSigner[]>([
     {
       role: 'Agent signer',
@@ -359,7 +361,7 @@ export default function App() {
         : (policiesData as { results?: ApiPolicy[] })?.results || [];
 
       if (policiesList.length > 0) {
-        const p = policiesList[0];
+        const p = policiesList.find((pol) => pol.is_active) || policiesList[policiesList.length - 1];
         setPolicyConfig((prev) => ({
           ...prev,
           id: p.id,
@@ -391,21 +393,35 @@ export default function App() {
         ? reqData
         : (reqData as { results?: ApiTransactionRequest[] })?.results || [];
 
-      if (reqList.length > 0) {
-        setRequests(reqList.map(mapBackendRequest));
-      }
+      setRequests(reqList.map(mapBackendRequest));
 
       // 4. Fetch Dashboard Stats
       const stats = await api.getDashboardStats().catch(() => null);
       if (stats) {
+        setDashboardStats(stats);
         setPolicyConfig((prev) => ({
           ...prev,
           dailySpent: parseFloat(stats.spent_daily || '0'),
           weeklySpent: parseFloat(stats.spent_weekly || '0'),
+          dailyLimit: parseFloat(stats.daily_limit || '0') > 0 ? parseFloat(stats.daily_limit) : prev.dailyLimit,
+          weeklyLimit: parseFloat(stats.weekly_limit || '0') > 0 ? parseFloat(stats.weekly_limit) : prev.weeklyLimit,
         }));
       }
     } catch (err) {
       console.warn('Backend sync:', err);
+    }
+  }, []);
+
+  // Dedicated lightweight requests polling function for live auto-updating
+  const fetchRequestsOnly = useCallback(async () => {
+    try {
+      const reqData = await api.getRequests().catch(() => null);
+      const reqList = Array.isArray(reqData)
+        ? reqData
+        : (reqData as { results?: ApiTransactionRequest[] })?.results || [];
+      setRequests(reqList.map(mapBackendRequest));
+    } catch (err) {
+      console.warn('Error auto-syncing requests:', err);
     }
   }, []);
 
@@ -578,6 +594,7 @@ export default function App() {
                         requests={requests}
                         policyConfig={policyConfig}
                         controlledWallet={controlledWallet}
+                        dashboardStats={dashboardStats}
                         onSelectTab={(tab) => navigate(tab === 'ai-agent' ? '/ai-agents' : `/${tab}`)}
                         onSelectRequest={setSelectedRequest}
                         onApproveQuick={handleApproveQuick}
@@ -594,6 +611,7 @@ export default function App() {
                         requests={requests}
                         onSelectRequest={setSelectedRequest}
                         onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
+                        onRefreshRequests={fetchRequestsOnly}
                       />
                     }
                   />
@@ -675,9 +693,19 @@ export default function App() {
                     element={
                       <SettingsView
                         operatorWallet={operatorWallet}
+                        setOperatorWallet={setOperatorWallet}
                         controlledWallet={controlledWallet}
                         setControlledWallet={setControlledWallet}
                         onResetData={handleResetData}
+                      />
+                    }
+                  />
+
+                  <Route
+                    path="/help"
+                    element={
+                      <HelpView
+                        onOpenSimulateModal={() => setIsSimulateModalOpen(true)}
                       />
                     }
                   />

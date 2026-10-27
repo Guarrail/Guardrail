@@ -406,40 +406,64 @@ def refund_pda_funds_to_owner(
     pda_secret: str,
     owner_address: str,
     amount: Decimal | None = None,
+    asset_code: str = "XLM",
+    asset_issuer: str | None = None,
+    memo_text: str | None = None,
 ) -> tuple[str, str, Decimal]:
     """
-    Sends funds from the PDA back to the owner/signup wallet address.
-    Calculates available balance above Stellar minimum reserve (~1.5 XLM).
+    Sends funds from the PDA back to owner address or another specified recipient.
+    Supports native XLM (accounting for 2.0 XLM reserve) as well as custom assets (USDC, EURC).
     Returns (tx_hash, xdr, transferred_amount).
     """
     kp = Keypair.from_secret(pda_secret)
     pda_address = kp.public_key
 
     balances = get_account_balances_from_horizon(pda_address)
-    native_balance = Decimal("0.0000000")
-    for b in balances:
-        if b.get("asset_type") == "native":
-            native_balance = Decimal(b.get("balance", "0"))
-            break
+    asset_code_clean = (asset_code or "XLM").strip().upper()
 
-    # Reserve minimum for Stellar base reserve (1 XLM + 0.5 for subentries/fees)
-    reserve = Decimal("2.0000000")
-    max_transferable = max(Decimal("0.0000000"), native_balance - reserve)
+    if asset_code_clean == "XLM":
+        native_balance = Decimal("0.0000000")
+        for b in balances:
+            if b.get("asset_type") == "native":
+                native_balance = Decimal(b.get("balance", "0"))
+                break
 
-    if amount is not None:
-        transfer_amount = min(amount, max_transferable)
+        # Reserve minimum for Stellar base reserve (1 XLM + subentries/fees)
+        reserve = Decimal("2.0000000")
+        max_transferable = max(Decimal("0.0000000"), native_balance - reserve)
+
+        if amount is not None:
+            transfer_amount = min(amount, max_transferable)
+        else:
+            transfer_amount = max_transferable
+
+        if transfer_amount <= Decimal("0.00001"):
+            raise ValueError(f"Insufficient PDA funds to transfer. Available balance: {native_balance} XLM (Reserve: {reserve} XLM)")
     else:
-        transfer_amount = max_transferable
+        token_balance = Decimal("0.0000000")
+        for b in balances:
+            if b.get("asset_code", "").upper() == asset_code_clean:
+                token_balance = Decimal(b.get("balance", "0"))
+                if not asset_issuer:
+                    asset_issuer = b.get("asset_issuer")
+                break
 
-    if transfer_amount <= Decimal("0.00001"):
-        raise ValueError(f"Insufficient PDA funds to refund. Available balance: {native_balance} XLM (Reserve: {reserve} XLM)")
+        if amount is not None:
+            transfer_amount = min(amount, token_balance)
+        else:
+            transfer_amount = token_balance
 
+        if transfer_amount <= Decimal("0.00001"):
+            raise ValueError(f"Insufficient PDA {asset_code_clean} balance. Available: {token_balance} {asset_code_clean}")
+
+    default_memo = f"PDA Transfer {asset_code_clean[:4]}" if memo_text is None else memo_text
     tx_hash, xdr = submit_live_stellar_payment(
         source_secret=pda_secret,
         destination_address=owner_address,
         amount=transfer_amount,
-        asset_code="XLM",
-        memo_text="PDA Refund to Owner",
+        asset_code=asset_code_clean,
+        asset_issuer=asset_issuer,
+        memo_text=default_memo,
     )
     return tx_hash, xdr, transfer_amount
 

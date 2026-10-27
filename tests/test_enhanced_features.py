@@ -422,4 +422,59 @@ def test_autonomous_mode_auto_broadcasts_without_human_action(ai_agent, controll
     assert high_resp.json()["requires_human_approval"] is True
 
 
+@pytest.mark.django_db
+def test_policy_blacklist_blocks_transaction_and_syncs_to_contract(ai_agent, policy):
+    from apps.policies.models import BlockedRecipient
+    client = APIClient()
+
+    # Blacklist a known bad address
+    blacklisted_addr = "GBDF5GHLWUQDRYVZH4I3OX47ZCG2LS2HH6K65POHNVK6LEJPLTKLH7LK"
+    BlockedRecipient.objects.create(
+        policy=policy,
+        address=blacklisted_addr,
+        label="Sanctioned Entity",
+        reason="AML compliance flag",
+        is_active=True,
+    )
+
+    api_key = getattr(ai_agent, "raw_api_key", ai_agent.api_key)
+    client.credentials(HTTP_X_AGENT_KEY=api_key)
+
+    req_payload = {
+        "recipient": blacklisted_addr,
+        "amount": "5.0000000",
+        "asset": "XLM",
+    }
+    resp = client.post("/api/v1/agent/requests/", req_payload, format="json")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["status"] == "BLOCKED"
+    results = data["policy_evaluation_results"]
+    assert results["is_passed"] is False
+    assert any("blacklist" in reason.lower() for reason in results["failure_reasons"])
+
+
+@pytest.mark.django_db
+def test_create_agent_with_multisig_registers_in_smart_contract(controlled_wallet, policy):
+    client = APIClient()
+    kp_assisting = Keypair.random()
+    assisting_operator_address = kp_assisting.public_key
+
+    create_payload = {
+        "name": "Multisig Smart Contract Agent",
+        "wallet": controlled_wallet.id,
+        "policy": policy.id,
+        "signer_weight": 2,
+        "autonomy_mode": "HUMAN_APPROVAL_ALWAYS",
+        "delegated_operator_addresses": [assisting_operator_address],
+    }
+    resp = client.post("/api/v1/agents/", create_payload, format="json")
+    assert resp.status_code == 201
+    agent_data = resp.json()["agent"]
+    assert agent_data["signer_weight"] == 2
+    assert assisting_operator_address in agent_data["delegated_operators"]
+
+
+
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Logo } from './Logo';
 import { OperatorWalletState } from '../types';
 import {
@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   KeyRound,
+  Sparkles,
 } from 'lucide-react';
 import { connectOfficialStellarWallet, signChallengeWithWallet } from '../services/stellarWallet';
 import { api } from '../services/api';
@@ -26,6 +27,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onLoginSuccess,
 }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const inviteRole = searchParams.get('invite_role');
+  const inviteAlias = searchParams.get('invite_alias');
+  const invitedBy = searchParams.get('invited_by');
+
   const [loginStep, setLoginStep] = useState<'idle' | 'connecting' | 'signing' | 'verifying' | 'success'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusText, setStatusText] = useState<string>('');
@@ -54,10 +60,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       // 4. Verify on backend API
       const verifyRes = await api.verifyChallenge(walletInfo.address, signature, undefined, challengeRes.challenge);
 
-      // 5. Query operator profile from backend
+      // 5. If arrived via invite link, automatically bind assigned role on backend
+      if (inviteRole) {
+        setStatusText(`Binding assigned role ${inviteRole} to your Stellar wallet address...`);
+        try {
+          await api.delegatePlatformOperator({
+            address: walletInfo.address,
+            alias: inviteAlias ? decodeURIComponent(inviteAlias) : undefined,
+            role: inviteRole,
+          });
+        } catch (delErr) {
+          console.warn('Role delegation error:', delErr);
+        }
+      }
+
+      // 6. Query operator profile from backend
       const profile = await api.getOperatorProfile(walletInfo.address).catch(() => null);
 
-      const username = profile?.alias || verifyRes.operator?.alias || '';
+      const username = profile?.alias || (inviteAlias ? decodeURIComponent(inviteAlias) : '') || verifyRes.operator?.alias || '';
+
+      const effectiveRole = inviteRole || profile?.effective_role || profile?.role || 'Treasury Operator';
 
       const authenticatedOperator: OperatorWalletState = {
         connected: true,
@@ -66,8 +88,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         balanceXlm: walletInfo.balanceXlm,
         walletName: walletInfo.walletName,
         username: username || `operator_${walletInfo.address.slice(0, 4).toLowerCase()}`,
-        displayName: profile?.alias || 'Treasury Operator',
-        role: 'Treasury Operator',
+        displayName: username || effectiveRole,
+        role: effectiveRole,
         avatar: 'shield',
       };
 
@@ -151,6 +173,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               Connect your Stellar wallet to sign the backend SEP-10 challenge. Proves wallet ownership without revealing your private key.
             </p>
           </div>
+
+          {/* Role Invitation Banner if visiting via invite link */}
+          {inviteRole && (
+            <div className="p-4 bg-gradient-to-r from-purple-900/30 to-indigo-900/30 border border-purple-500/40 rounded-xl flex items-start gap-3 shadow-md animate-in fade-in duration-200">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-space font-bold text-white text-sm">Assigned Role Invitation</span>
+                  <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-purple-500/30 text-purple-200 border border-purple-400/30">
+                    {inviteRole}
+                  </span>
+                </div>
+                <p className="text-white/80 leading-relaxed text-[11px]">
+                  You have been invited{invitedBy ? ` by ${invitedBy.slice(0, 8)}...` : ''} to join GuardRail Governance as{' '}
+                  <strong className="text-white">{inviteAlias ? decodeURIComponent(inviteAlias) : inviteRole}</strong>.
+                  Connect your Stellar wallet below to accept this assignment and assume your role.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Error Message */}
           {errorMsg && (

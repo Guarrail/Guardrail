@@ -113,6 +113,14 @@ export interface ApiPolicy {
     is_active: boolean;
     created_at: string;
   }>;
+  blocked_recipients?: Array<{
+    id: string;
+    address: string;
+    label: string;
+    reason?: string;
+    is_active: boolean;
+    created_at: string;
+  }>;
   allowed_assets: Array<{
     id: string;
     asset_code: string;
@@ -365,6 +373,8 @@ export const api = {
     weekly_spending_limit: string;
     human_approval_threshold: string;
     require_human_approval_always?: boolean;
+    allowed_recipients?: Array<{ address: string; label?: string }>;
+    blocked_recipients?: Array<{ address: string; label?: string; reason?: string }>;
   }) =>
     fetchJson<ApiPolicy>('/api/v1/policies/', {
       method: 'POST',
@@ -393,6 +403,22 @@ export const api = {
     fetchJson(`/api/v1/policies/${policyId}/add-recipient/`, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  addBlockedRecipient: (policyId: string, data: { address: string; label?: string; reason?: string }) =>
+    fetchJson(`/api/v1/policies/${policyId}/add-blocked-recipient/`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteRecipient: (recipientId: string) =>
+    fetchJson(`/api/v1/allowed-recipients/${recipientId}/`, {
+      method: 'DELETE',
+    }),
+
+  deleteBlockedRecipient: (blockedRecipientId: string) =>
+    fetchJson(`/api/v1/blocked-recipients/${blockedRecipientId}/`, {
+      method: 'DELETE',
     }),
 
   addAsset: (policyId: string, data: { asset_code: string; issuer_address?: string | null }) =>
@@ -520,17 +546,24 @@ export const api = {
       pda_tx_url: string;
     }>(`/api/v1/agents/${id}/live-balance/`),
 
-  refundAgentFundsToOwner: (id: string, amount?: string) =>
-    fetchJson<{
+  refundAgentFundsToOwner: (
+    id: string,
+    params?: string | { amount?: string; destination?: string; asset?: string; asset_issuer?: string }
+  ) => {
+    const payload = typeof params === 'string' ? { amount: params } : (params || {});
+    return fetchJson<{
       message: string;
       stellar_tx_hash: string;
       amount: string;
-      owner_address: string;
+      asset?: string;
+      destination?: string;
+      owner_address?: string;
       explorer_url: string;
     }>(`/api/v1/agents/${id}/refund-to-owner/`, {
       method: 'POST',
-      body: JSON.stringify(amount ? { amount } : {}),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
 
   requestAgentFunds: (id: string, action: 'friendbot' | 'deposit' = 'friendbot', amount?: string) =>
     fetchJson<{

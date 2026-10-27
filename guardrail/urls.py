@@ -17,7 +17,7 @@ from apps.accounts.views import (
 )
 
 from apps.wallets.views import ControlledWalletViewSet
-from apps.policies.views import PolicyViewSet, AllowedRecipientViewSet, AllowedAssetViewSet
+from apps.policies.views import PolicyViewSet, AllowedRecipientViewSet, BlockedRecipientViewSet, AllowedAssetViewSet
 from apps.agents.views import AIAgentViewSet
 from apps.coordinator.views import (
     AgentSubmitRequestView,
@@ -69,6 +69,7 @@ router.register(r"accounts/escalations", PrivilegeEscalationViewSet, basename="e
 router.register(r"wallets", ControlledWalletViewSet, basename="wallet")
 router.register(r"policies", PolicyViewSet, basename="policy")
 router.register(r"recipients", AllowedRecipientViewSet, basename="recipient")
+router.register(r"blocked-recipients", BlockedRecipientViewSet, basename="blocked-recipient")
 router.register(r"assets", AllowedAssetViewSet, basename="asset")
 router.register(r"agents", AIAgentViewSet, basename="agent")
 router.register(r"coordinator/requests", OperatorRequestViewSet, basename="coordinator-request")

@@ -127,13 +127,16 @@ def evaluate_and_create_request(
         if not agent.is_operational:
             eval_result.fail(f"Agent {agent.agent_id} is currently {agent.status}.", category="general")
 
-        # Check recipient allowlist: if policy defines allowlist, enforce it.
+        # Check recipient blacklist & allowlist / whitelist:
         # Self-custody swaps returning tokens to the agent's own wallet bypass external recipient restrictions.
-        is_self_swap = swap_details and recipient == target_wallet.address
-        if not is_valid_stellar_address(recipient):
+        recipient_clean = recipient.strip()
+        is_self_swap = swap_details and recipient_clean == target_wallet.address.strip()
+        if not is_valid_stellar_address(recipient_clean):
             eval_result.fail("Invalid recipient Stellar address format.", category="recipient")
-        elif not is_self_swap and policy.allowed_recipients.filter(is_active=True).exists() and not policy.allowed_recipients.filter(address=recipient, is_active=True).exists():
-            eval_result.fail(f"Recipient address {recipient} is not on the policy allowlist.", category="recipient")
+        elif policy.blocked_recipients.filter(address__iexact=recipient_clean, is_active=True).exists():
+            eval_result.fail(f"Recipient address {recipient_clean} is on the policy blacklist (prohibited destination).", category="recipient")
+        elif not is_self_swap and policy.allowed_recipients.filter(is_active=True).exists() and not policy.allowed_recipients.filter(address__iexact=recipient_clean, is_active=True).exists():
+            eval_result.fail(f"Recipient address {recipient_clean} is not on the policy whitelist.", category="recipient")
 
         # Check asset allowlist: if policy defines allowed assets, enforce it
         if policy.allowed_assets.filter(is_active=True).exists():

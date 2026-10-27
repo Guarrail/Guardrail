@@ -1,11 +1,17 @@
 from django.contrib import admin
-from .models import Policy, AllowedRecipient, AllowedAsset, SpendingLedger
+from .models import Policy, AllowedRecipient, BlockedRecipient, AllowedAsset, SpendingLedger
 
 
 class AllowedRecipientInline(admin.TabularInline):
     model = AllowedRecipient
     extra = 1
     fields = ("address", "label", "is_active")
+
+
+class BlockedRecipientInline(admin.TabularInline):
+    model = BlockedRecipient
+    extra = 1
+    fields = ("address", "label", "reason", "is_active")
 
 
 class AllowedAssetInline(admin.TabularInline):
@@ -47,7 +53,7 @@ class PolicyAdmin(admin.ModelAdmin):
     search_fields = ("name", "description")
     readonly_fields = ("id", "created_at", "updated_at")
     ordering = ("-created_at",)
-    inlines = [AllowedRecipientInline, AllowedAssetInline, SpendingLedgerInline]
+    inlines = [AllowedRecipientInline, BlockedRecipientInline, AllowedAssetInline, SpendingLedgerInline]
 
 
 @admin.register(AllowedRecipient)
@@ -55,6 +61,14 @@ class AllowedRecipientAdmin(admin.ModelAdmin):
     list_display = ("label", "address", "policy", "is_active", "created_at")
     list_filter = ("is_active", "policy")
     search_fields = ("label", "address", "policy__name")
+    readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(BlockedRecipient)
+class BlockedRecipientAdmin(admin.ModelAdmin):
+    list_display = ("label", "address", "reason", "policy", "is_active", "created_at")
+    list_filter = ("is_active", "policy")
+    search_fields = ("label", "address", "reason", "policy__name")
     readonly_fields = ("id", "created_at", "updated_at")
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   Shield,
@@ -10,7 +10,9 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  User,
+  Settings
 } from 'lucide-react';
 import { TabView, ControlledWalletState, OperatorWalletState } from '../types';
 import { connectOfficialStellarWallet, openWalletProfileModal, disconnectOfficialStellarWallet } from '../services/stellarWallet';
@@ -39,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const getActiveTab = (): TabView => {
     const p = location.pathname;
@@ -203,10 +206,10 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative">
             <button
               onClick={() => setIsWalletMenuOpen(!isWalletMenuOpen)}
-              className="group flex items-center gap-3 px-3.5 py-1.5 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/[0.08] hover:border-white/[0.16] rounded-full transition-all duration-200 cursor-pointer shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_12px_rgba(0,0,0,0.25)]"
+              className="group flex items-center gap-2.5 px-3 py-1.5 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/[0.08] hover:border-white/[0.16] rounded-full transition-all duration-200 cursor-pointer shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_12px_rgba(0,0,0,0.25)]"
               aria-label="Wallet profile menu"
             >
-              {/* Circular Avatar with status pip */}
+              {/* Profile Avatar Icon with status pip */}
               <div className="relative">
                 <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-500/30 to-emerald-400/10 border border-emerald-400/40 flex items-center justify-center text-emerald-300 font-space font-bold text-xs shadow-inner">
                   {operatorWallet.username ? operatorWallet.username.charAt(0).toUpperCase() : 'G'}
@@ -214,23 +217,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#080C14]" />
               </div>
 
-              {/* Username & Role */}
-              <div className="flex flex-col text-left">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-space text-white font-bold text-xs tracking-tight">
-                    {operatorWallet.username ? `@${operatorWallet.username}` : `${operatorWallet.address.slice(0, 5)}…${operatorWallet.address.slice(-4)}`}
-                  </span>
-                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                </div>
-                <span className="text-[10px] text-white/50 font-medium">
-                  {operatorWallet.role || 'Treasury Operator'}
-                </span>
-              </div>
-
-              {/* Balance Capsule */}
-              <div className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono text-[11px] font-semibold rounded-full tabular-nums">
+              {/* ONLY XLM balance showing */}
+              <span className="font-mono text-xs font-bold text-emerald-300 tabular-nums">
                 {operatorWallet.balanceXlm || '100.00'} XLM
-              </div>
+              </span>
 
               <ChevronDown
                 className={`w-3.5 h-3.5 text-white/40 group-hover:text-white/80 transition-transform duration-200 ${
@@ -315,6 +305,21 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="text-xs">Inspect on Stellar Expert</span>
                   <ExternalLink className="w-3.5 h-3.5 text-white/40 group-hover:text-emerald-400 transition-colors" />
                 </a>
+
+                {/* Edit Profile & Username shortcut */}
+                <button
+                  onClick={() => {
+                    setIsWalletMenuOpen(false);
+                    navigate('/settings');
+                  }}
+                  className="flex items-center justify-between px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-xs text-white/80 hover:text-white transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <User className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Edit Profile & Username</span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-white/30 -rotate-90 group-hover:text-white transition-transform" />
+                </button>
 
                 {/* Action buttons */}
                 <div className="pt-2 flex flex-col gap-2 border-t border-white/[0.08]">

@@ -133,3 +133,57 @@ def test_emergency_disabled_agent_blocked(ai_agent):
 
     assert req.status == "BLOCKED"
     assert permit is None
+
+
+@pytest.mark.django_db
+def test_blacklisted_recipient_strictly_blocked(ai_agent):
+    from apps.policies.models import BlockedRecipient
+    blacklisted_addr = "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
+    BlockedRecipient.objects.create(
+        policy=ai_agent.policy,
+        address=blacklisted_addr,
+        label="Hacker Wallet",
+        reason="Known malicious address",
+        is_active=True,
+    )
+
+    req, permit = evaluate_and_create_request(
+        agent=ai_agent,
+        request_id="req_blacklisted_test",
+        recipient=blacklisted_addr,
+        amount=Decimal("5.0000000"),
+        asset_code="XLM",
+    )
+
+    assert req.status == "BLOCKED"
+    assert permit is None
+    checklist = req.policy_evaluation_results.get("checklist", {})
+    assert checklist.get("recipient_approved") is False
+    assert any("blacklist" in r.lower() for r in req.policy_evaluation_results.get("failure_reasons", []))
+
+
+@pytest.mark.django_db
+def test_policy_serializer_creates_and_updates_recipients():
+    from apps.policies.serializers import PolicySerializer
+    payload = {
+        "name": "Serializer Test Policy",
+        "max_amount_per_tx": "50.0000000",
+        "daily_spending_limit": "200.0000000",
+        "weekly_spending_limit": "1000.0000000",
+        "human_approval_threshold": "25.0000000",
+        "allowed_recipients": [
+            {"address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "label": "Treasury"}
+        ],
+        "blocked_recipients": [
+            {"address": "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE", "label": "Drainer", "reason": "Drainer attack"}
+        ],
+    }
+    serializer = PolicySerializer(data=payload)
+    assert serializer.is_valid(), serializer.errors
+    policy = serializer.save()
+
+    assert policy.allowed_recipients.count() == 1
+    assert policy.allowed_recipients.first().address == "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+    assert policy.blocked_recipients.count() == 1
+    assert policy.blocked_recipients.first().address == "GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
+

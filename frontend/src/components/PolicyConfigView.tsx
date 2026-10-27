@@ -157,6 +157,7 @@ export const PolicyConfigView: React.FC<PolicyConfigViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredPolicies.map((p) => {
             const allowedRecipientsCount = p.allowed_recipients ? p.allowed_recipients.length : 0;
+            const blockedRecipientsCount = p.blocked_recipients ? p.blocked_recipients.length : 0;
             const allowedAssetsCount = p.allowed_assets ? p.allowed_assets.length : 0;
 
             return (
@@ -226,7 +227,7 @@ export const PolicyConfigView: React.FC<PolicyConfigViewProps> = ({
                 {/* Tags & Action Button */}
                 <div className="flex flex-col gap-3 pt-2 border-t border-white/[0.06]">
                   <div className="flex items-center justify-between text-[11px] text-white/50">
-                    <span>{allowedRecipientsCount} Recipients • {allowedAssetsCount} Assets</span>
+                    <span>{allowedRecipientsCount} Allowed • {blockedRecipientsCount} Blocked • {allowedAssetsCount} Assets</span>
                     <span className={p.require_human_approval_always ? 'text-amber-400/80 font-medium' : 'text-emerald-400/80 font-medium'}>
                       {p.require_human_approval_always ? 'Review Always' : 'Autonomous'}
                     </span>

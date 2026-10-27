@@ -151,6 +151,25 @@ class AIAgentViewSet(viewsets.ModelViewSet):
             admin_op, _ = Operator.objects.get_or_create(address=admin_address, defaults={"role": "ADMIN"})
             agent.delegated_operators.add(admin_op)
 
+        # Register multisig signers and threshold in Soroban smart contract
+        if signer_weight >= 2 or autonomy_mode == "HUMAN_APPROVAL_ALWAYS":
+            try:
+                signers_payload = [
+                    {"address": admin_address, "role": "ADMIN", "weight": 1}
+                ]
+                for addr in delegated_addrs:
+                    if addr != admin_address and is_valid_stellar_address(addr):
+                        signers_payload.append({"address": addr, "role": "OPERATOR", "weight": 1})
+                from apps.smart_contracts.services import SorobanGuardrailClient
+                SorobanGuardrailClient().register_agent_multisig(
+                    agent_id=agent.agent_id,
+                    agent_address=agent.stellar_public_key,
+                    signers=signers_payload,
+                    required_weight=signer_weight,
+                )
+            except Exception as e:
+                logger.warning("Could not register agent multisig in Soroban contract: %s", str(e))
+
         record_audit_event(
             event_type="AI_AGENT_REGISTERED",
             actor_id=agent.agent_id,
@@ -284,13 +303,27 @@ class AIAgentViewSet(viewsets.ModelViewSet):
         amount_raw = request.data.get("amount")
         amount = Decimal(str(amount_raw)) if amount_raw else None
 
-        owner_address = agent.wallet.address
+        destination = (
+            request.data.get("destination")
+            or request.data.get("recipient")
+            or (agent.wallet.address if agent.wallet else None)
+        )
+        if not destination or not is_valid_stellar_address(destination):
+            return Response(
+                {"error": f"Invalid or missing Stellar destination address: '{destination}'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        asset_code = request.data.get("asset") or request.data.get("asset_code") or "XLM"
+        asset_issuer = request.data.get("asset_issuer")
 
         try:
             tx_hash, xdr, transferred = refund_pda_funds_to_owner(
                 pda_secret=agent.stellar_secret_key,
-                owner_address=owner_address,
+                owner_address=destination,
                 amount=amount,
+                asset_code=asset_code,
+                asset_issuer=asset_issuer,
             )
 
             record_audit_event(
@@ -300,21 +333,26 @@ class AIAgentViewSet(viewsets.ModelViewSet):
                 stellar_tx_hash=tx_hash,
                 details={
                     "pda_address": agent.stellar_public_key,
-                    "recipient_owner": owner_address,
+                    "recipient": destination,
                     "amount": str(transferred),
+                    "asset": asset_code,
                 },
             )
 
+            is_self = agent.wallet and destination == agent.wallet.address
+            recipient_label = "master wallet (self)" if is_self else destination
             return Response({
-                "message": f"Successfully refunded {transferred} XLM from PDA to owner wallet {owner_address}.",
+                "message": f"Successfully sent {transferred} {asset_code} from PDA to {recipient_label}.",
                 "stellar_tx_hash": tx_hash,
                 "amount": str(transferred),
-                "owner_address": owner_address,
+                "asset": asset_code,
+                "destination": destination,
+                "is_self": is_self,
                 "explorer_url": f"https://stellar.expert/explorer/testnet/tx/{tx_hash}",
             }, status=status.HTTP_200_OK)
         except Exception as e:
-            logger.exception("PDA refund to owner failed: %s", str(e))
-            return Response({"error": f"Refund transaction failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            logger.exception("PDA transfer/refund failed: %s", str(e))
+            return Response({"error": f"Transfer failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
     @extend_schema(
         description="Deposit/Fund PDA: Agent requests funds from the user wallet or instant Testnet Friendbot top-up.",

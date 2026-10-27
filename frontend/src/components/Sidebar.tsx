@@ -15,7 +15,8 @@ import {
   ChevronRight,
   CheckCircle2,
   Copy,
-  Check
+  Check,
+  HelpCircle,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -88,6 +89,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       path: '/settings',
       label: 'Settings',
       icon: Settings,
+    },
+    {
+      id: 'help' as TabView,
+      path: '/help',
+      label: 'Help & Docs',
+      icon: HelpCircle,
     },
   ];
 
@@ -173,14 +180,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col gap-3 pt-3 border-t border-white/[0.08]">
           {/* Operator Wallet Profile Card */}
           {operatorWallet?.connected ? (
-            <div className="p-3 bg-white/[0.035] border border-white/[0.08] rounded-2xl backdrop-blur-md flex flex-col gap-2 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
+            <div className="p-3.5 bg-white/[0.035] border border-white/[0.08] rounded-2xl backdrop-blur-md flex flex-col gap-2.5 shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <div className="relative shrink-0">
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-emerald-500/30 to-emerald-400/10 border border-emerald-400/40 flex items-center justify-center text-emerald-300 font-space font-bold text-[10px]">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-500/30 to-emerald-400/10 border border-emerald-400/40 flex items-center justify-center text-emerald-300 font-space font-bold text-xs">
                       {operatorWallet.username ? operatorWallet.username.charAt(0).toUpperCase() : 'G'}
                     </div>
-                    <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#0A0E18]" />
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0A0E18]" />
                   </div>
                   <div className="flex flex-col min-w-0">
                     <span className="text-white font-space font-bold text-xs truncate">
@@ -191,48 +198,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                   </div>
                 </div>
-                <span className="font-space text-[10px] text-emerald-300 font-bold shrink-0 tabular-nums px-1.5 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20">
+                <span className="font-space text-[10px] text-emerald-300 font-bold shrink-0 tabular-nums px-2 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20">
                   {operatorWallet.balanceXlm || '100.00'} XLM
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-[10px] text-white/40 pt-1 border-t border-white/[0.06]">
+              <div className="flex items-center justify-between text-[11px] text-white/40 pt-1.5 border-t border-white/[0.06]">
                 <span className="font-mono">
-                  {operatorWallet.address.slice(0, 5)}…{operatorWallet.address.slice(-4)}
+                  {operatorWallet.address ? `${operatorWallet.address.slice(0, 5)}…${operatorWallet.address.slice(-4)}` : ''}
                 </span>
                 <button
                   onClick={() => handleCopyAddr(operatorWallet.address)}
-                  className="hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1"
+                  className="hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
                   title="Copy address"
                 >
-                  {copiedAddr ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                  {copiedAddr ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedAddr ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
             </div>
           ) : (
-            <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-2xl text-center">
+            <div className="p-3.5 bg-white/[0.03] border border-white/[0.06] rounded-2xl text-center">
               <span className="text-xs text-white/50">Wallet Not Connected</span>
             </div>
           )}
 
-          {/* Landing Link & Network Badge */}
-          <div className="flex items-center justify-between px-1">
-            <button
-              onClick={() => {
-                if (onSelectTab) onSelectTab('landing');
-                onCloseMobile();
-              }}
-              className="text-xs text-white/50 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <span>Landing Page</span>
-              <ChevronRight className="w-3 h-3" />
-            </button>
-
-            {/* Stellar Testnet Pill */}
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-400/10 rounded-full border border-amber-400/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-              <span className="font-space text-[10px] font-medium text-amber-300 tracking-tight whitespace-nowrap">
+          {/* Stellar Testnet Network Badge */}
+          <div className="flex items-center justify-center">
+            <div className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-amber-400/[0.08] rounded-xl border border-amber-400/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="font-space text-[11px] font-medium text-amber-300 tracking-tight whitespace-nowrap">
                 Stellar Testnet
               </span>
             </div>

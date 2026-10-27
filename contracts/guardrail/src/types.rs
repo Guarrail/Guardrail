@@ -14,8 +14,11 @@ pub enum DataKey {
     LastDailyReset,
     LastWeeklyReset,
     AllowedRecipient(Address),
+    BlockedRecipient(Address),
     AllowedToken(Address),
     ExecutedPermit(BytesN<32>),
+    SignerWeight(Address),
+    RequiredMultisigWeight,
 }
 
 #[contracttype]

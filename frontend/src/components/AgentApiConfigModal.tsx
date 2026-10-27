@@ -110,7 +110,7 @@ export const AgentApiConfigModal: React.FC<AgentApiConfigModalProps> = ({
     setRequestId(`req_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
   };
 
-  const targetRecipient = selectedRecipient === 'custom' ? customRecipient.trim() : selectedRecipient;
+  const targetRecipient = selectedRecipient === 'custom' ? customRecipient.trim() : selectedRecipient.trim();
 
   // Real-time policy pre-flight check for direct payments
   const numAmount = parseFloat(amount) || 0;
@@ -118,7 +118,13 @@ export const AgentApiConfigModal: React.FC<AgentApiConfigModalProps> = ({
   const approvalGate = policy ? parseFloat(policy.human_approval_threshold) : 15;
   const isAlwaysApprove = policy?.require_human_approval_always || agent.autonomy_mode === 'HUMAN_APPROVAL_ALWAYS';
 
-  const willBeBlocked = numAmount > maxTx;
+  const cleanTargetRecipient = targetRecipient.toUpperCase();
+  const matchedBlockedRecipient = policy?.blocked_recipients?.find(
+    (b) => b.is_active !== false && b.address && b.address.trim().toUpperCase() === cleanTargetRecipient
+  );
+  const isRecipientBlocked = Boolean(cleanTargetRecipient && matchedBlockedRecipient);
+  const isAmountBlocked = numAmount > maxTx;
+  const willBeBlocked = isRecipientBlocked || isAmountBlocked;
   const willRequireApproval = !willBeBlocked && (isAlwaysApprove || numAmount > approvalGate);
   const willAutoApprove = !willBeBlocked && !willRequireApproval && numAmount > 0;
 
@@ -807,15 +813,28 @@ executeTokenSwap();`;
                 </div>
 
                 {/* Live Pre-Flight Policy Evaluation Prediction Banner */}
-                <div className="p-4 rounded-2xl border bg-black/40 flex items-start gap-3 text-xs">
+                <div
+                  className={`p-4 rounded-2xl border flex items-start gap-3 text-xs transition-all ${
+                    willBeBlocked
+                      ? 'bg-rose-500/10 border-rose-500/30'
+                      : willRequireApproval
+                      ? 'bg-amber-500/10 border-amber-500/30'
+                      : 'bg-emerald-500/10 border-emerald-500/30'
+                  }`}
+                >
                   {willBeBlocked ? (
                     <>
                       <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-bold text-rose-300">Policy Breach Detected</span>
+                        <span className="font-bold text-rose-300">
+                          {isRecipientBlocked ? 'Recipient Blacklisted by Policy' : 'Policy Breach Detected'}
+                        </span>
                         <p className="text-rose-200/80 mt-0.5">
-                          Amount ({numAmount} {assetCode}) exceeds single transaction limit of {maxTx} {assetCode}.
-                          GuardRail coordinator will evaluate and block this transaction.
+                          {isRecipientBlocked
+                            ? `Destination address (${cleanTargetRecipient.slice(0, 8)}...${cleanTargetRecipient.slice(-6)}) is on the policy blacklist${
+                                matchedBlockedRecipient?.reason ? `: "${matchedBlockedRecipient.reason}"` : ''
+                              }. GuardRail coordinator will reject and block this transaction.`
+                            : `Amount (${numAmount} ${assetCode}) exceeds single transaction limit of ${maxTx} ${assetCode}. GuardRail coordinator will evaluate and block this transaction.`}
                         </p>
                       </div>
                     </>
@@ -874,10 +893,20 @@ executeTokenSwap();`;
 
               {/* Submission Result Display */}
               {submissionResult && (
-                <div className="p-5 bg-white/[0.035] border border-white/[0.12] rounded-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+                <div
+                  className={`p-5 border rounded-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 ${
+                    submissionResult.status === 'BLOCKED'
+                      ? 'bg-rose-950/25 border-rose-500/40'
+                      : 'bg-white/[0.035] border-white/[0.12]'
+                  }`}
+                >
                   <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      {submissionResult.status === 'BLOCKED' ? (
+                        <ShieldAlert className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      )}
                       <span className="text-xs font-bold text-white uppercase tracking-wider">
                         GuardRail Coordinator Result
                       </span>
@@ -885,7 +914,7 @@ executeTokenSwap();`;
 
                     <span
                       className={`text-xs px-2.5 py-1 rounded-full font-mono font-bold ${
-                        submissionResult.status === 'APPROVED'
+                        submissionResult.status === 'APPROVED' || submissionResult.status === 'EXECUTED'
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           : submissionResult.status === 'PENDING_APPROVAL'
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
@@ -895,6 +924,27 @@ executeTokenSwap();`;
                       {submissionResult.status}
                     </span>
                   </div>
+
+                  {submissionResult.status === 'BLOCKED' && (
+                    <div className="p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-xl text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-rose-300 font-bold">
+                        <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Transaction Blocked by GuardRail Policy</span>
+                      </div>
+                      {submissionResult.policy_evaluation_results?.failure_reasons &&
+                      submissionResult.policy_evaluation_results.failure_reasons.length > 0 ? (
+                        <ul className="list-disc pl-5 space-y-1 text-rose-200/90 text-[11px]">
+                          {submissionResult.policy_evaluation_results.failure_reasons.map((r, idx) => (
+                            <li key={idx}>{r}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-rose-200/80 text-[11px]">
+                          Destination address or transaction parameters violated active policy rules.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                     <div className="p-2.5 bg-black/30 rounded-xl flex flex-col">

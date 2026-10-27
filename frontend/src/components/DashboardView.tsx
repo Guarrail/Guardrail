@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AgentRequest, PolicyConfig, ControlledWalletState, TabView, WalletAsset } from '../types';
+import { ApiDashboardStats } from '../services/api';
 import {
   ArrowRight,
   Shield,
@@ -23,6 +24,7 @@ interface DashboardViewProps {
   requests: AgentRequest[];
   policyConfig: PolicyConfig;
   controlledWallet: ControlledWalletState;
+  dashboardStats?: ApiDashboardStats | null;
   onSelectTab: (tab: TabView) => void;
   onSelectRequest: (req: AgentRequest) => void;
   onApproveQuick: (req: AgentRequest) => void;
@@ -34,6 +36,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   requests,
   policyConfig,
   controlledWallet,
+  dashboardStats,
   onSelectTab,
   onSelectRequest,
   onApproveQuick,
@@ -112,14 +115,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setTimeout(() => setCopiedIssuer(null), 2000);
   };
 
-  // Dynamic stats calculated from real state
-  const pendingCount = requests.filter((r) => r.status === 'Pending').length;
-  const executedCount = requests.filter((r) => r.status === 'Executed' || r.status === 'Approved').length;
-  const blockedCount = requests.filter((r) => r.status === 'Blocked').length;
-  const weeklyUsagePercent = Math.min(
-    100,
-    Math.round((policyConfig.weeklySpent / (policyConfig.weeklyLimit || 1)) * 100)
-  );
+  // Dynamic stats calculated from real state & coordinator dashboard stats
+  const activeAgentsCount = dashboardStats?.active_agents ?? 9;
+  const pendingCount = dashboardStats !== undefined && dashboardStats !== null
+    ? dashboardStats.pending_approvals
+    : requests.filter((r) => r.status === 'Pending').length;
+  const executedCount = dashboardStats !== undefined && dashboardStats !== null
+    ? (dashboardStats.approved_transactions + dashboardStats.executed_transactions)
+    : requests.filter((r) => r.status === 'Executed' || r.status === 'Approved').length;
+  const blockedCount = dashboardStats !== undefined && dashboardStats !== null
+    ? dashboardStats.blocked_transactions
+    : requests.filter((r) => r.status === 'Blocked' || r.status === 'Rejected').length;
+
+  const policyAssetCode = currentAsset?.asset_code || 'XLM';
+  const effectiveWeeklyLimit = dashboardStats && parseFloat(dashboardStats.weekly_limit) > 0
+    ? parseFloat(dashboardStats.weekly_limit)
+    : (policyConfig.weeklyLimit || 500);
+  const effectiveWeeklySpent = dashboardStats
+    ? parseFloat(dashboardStats.spent_weekly || '0')
+    : policyConfig.weeklySpent;
+  const effectiveDailyLimit = dashboardStats && parseFloat(dashboardStats.daily_limit) > 0
+    ? parseFloat(dashboardStats.daily_limit)
+    : (policyConfig.dailyLimit || 100);
+  const effectiveDailySpent = dashboardStats
+    ? parseFloat(dashboardStats.spent_daily || '0')
+    : policyConfig.dailySpent;
+
+  const weeklyUsagePercent = effectiveWeeklyLimit > 0
+    ? Math.min(100, Math.round((effectiveWeeklySpent / effectiveWeeklyLimit) * 100))
+    : 0;
 
   // Take the 4 most recent requests
   const recentRequests = requests.slice(0, 5);
@@ -258,7 +282,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Active AI Agents
           </span>
           <div className="font-space text-xl sm:text-2xl font-bold text-white tracking-tight mt-3 flex items-center justify-between">
-            <span>1</span>
+            <span>{activeAgentsCount}</span>
             <span className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-400/20" />
           </div>
         </div>
@@ -446,9 +470,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="text-sm font-manrope text-white/60 mt-1">
                 <span className="text-white font-space font-bold tabular-nums">
-                  {policyConfig.weeklySpent.toLocaleString()}
+                  {effectiveWeeklySpent.toLocaleString()}
                 </span>{' '}
-                of {policyConfig.weeklyLimit.toLocaleString()} USDC
+                of {effectiveWeeklyLimit.toLocaleString()} {policyAssetCode}
               </div>
             </div>
 
@@ -480,7 +504,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
               </div>
               <div className="flex items-center justify-between text-xs text-white/50 mt-0.5">
-                <span>Today: <span className="text-white font-medium">{policyConfig.dailySpent.toLocaleString()}</span> / {policyConfig.dailyLimit.toLocaleString()} USDC</span>
+                <span>Today: <span className="text-white font-medium">{effectiveDailySpent.toLocaleString()}</span> / {effectiveDailyLimit.toLocaleString()} {policyAssetCode}</span>
                 <span className="text-amber-300 font-semibold">{weeklyUsagePercent}% used</span>
               </div>
             </div>
@@ -506,13 +530,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="py-2.5 flex items-center justify-between">
                 <span className="text-white/50">Per-Tx Ceiling</span>
                 <span className="font-space text-white font-semibold tabular-nums">
-                  {policyConfig.maxPerTransaction.toLocaleString()} USDC
+                  {policyConfig.maxPerTransaction.toLocaleString()} {policyAssetCode}
                 </span>
               </div>
               <div className="py-2.5 flex items-center justify-between">
                 <span className="text-white/50">Approval Threshold</span>
                 <span className="font-space text-white font-semibold tabular-nums">
-                  Above {policyConfig.approvalThreshold.toLocaleString()} USDC
+                  Above {policyConfig.approvalThreshold.toLocaleString()} {policyAssetCode}
                 </span>
               </div>
             </div>

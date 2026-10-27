@@ -22,6 +22,9 @@ import {
   Plus,
   ShieldAlert,
   UserPlus,
+  Share2,
+  Sparkles,
+  Link,
 } from 'lucide-react';
 
 interface WalletSecurityViewProps {
@@ -70,7 +73,14 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
   const [delegateAddress, setDelegateAddress] = useState('');
   const [delegateAlias, setDelegateAlias] = useState('');
   const [delegateRole, setDelegateRole] = useState('OPERATOR');
+  const [delegateError, setDelegateError] = useState('');
   const [isSubmittingDelegate, setIsSubmittingDelegate] = useState(false);
+
+  // Shareable signup / invitation link modal state
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteRole, setInviteRole] = useState('OPERATOR');
+  const [inviteAlias, setInviteAlias] = useState('');
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
 
   // Current viewer address (retrieved from localStorage or default)
   const [currentOperatorAddress, setCurrentOperatorAddress] = useState<string>(() => {
@@ -161,12 +171,42 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
     }
   };
 
+  const handlePreFillGuardrailSigner = () => {
+    const cosigner = controlledWallet.cosignerAddress || 'GBGUARDRAILCOSIGNERTESTNETPUBKEYDEMO1234567890ABCDEFGH';
+    setDelegateAddress(cosigner);
+    setDelegateAlias('GuardRail Coordinator Co-Signer');
+    setDelegateRole('SIGNER_ADMIN');
+    setDelegateError('');
+    setIsDelegateModalOpen(true);
+  };
+
+  const getShareableInviteLink = () => {
+    const origin = window.location.origin;
+    const params = new URLSearchParams();
+    params.set('invite_role', inviteRole);
+    if (inviteAlias.trim()) {
+      params.set('invite_alias', inviteAlias.trim());
+    }
+    if (currentOperatorAddress) {
+      params.set('invited_by', currentOperatorAddress);
+    }
+    return `${origin}/login?${params.toString()}`;
+  };
+
+  const handleCopyInviteLink = () => {
+    const link = getShareableInviteLink();
+    navigator.clipboard.writeText(link);
+    setCopiedInviteLink(true);
+    setTimeout(() => setCopiedInviteLink(false), 2500);
+  };
+
   const handleDelegateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!delegateAddress.trim().startsWith('G') || delegateAddress.trim().length !== 56) {
-      alert('Invalid Stellar public key format. Must start with G and be 56 characters.');
+      setDelegateError('Invalid Stellar public key format. Must start with G and be 56 characters.');
       return;
     }
+    setDelegateError('');
     try {
       setIsSubmittingDelegate(true);
       await api.delegatePlatformOperator({
@@ -178,9 +218,10 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
       setIsDelegateModalOpen(false);
       setDelegateAddress('');
       setDelegateAlias('');
+      setDelegateError('');
       fetchSharedAccountData();
     } catch (err: unknown) {
-      setToastMessage(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
+      setDelegateError(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSubmittingDelegate(false);
       setTimeout(() => setToastMessage(''), 3500);
@@ -467,15 +508,38 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
 
         {/* Operators Roster Table */}
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">Active Operators ({operators.length})</span>
-            <button
-              onClick={() => setIsDelegateModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-white text-xs font-semibold transition-all cursor-pointer"
-            >
-              <UserPlus className="w-3.5 h-3.5 text-purple-400" />
-              <span>Delegate Operator</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">Active Operators & Signers ({operators.length})</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handlePreFillGuardrailSigner}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
+                title="Add GuardRail Coordinator Co-Signer as an authorized signer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                <span>+ Add GuardRail Signer</span>
+              </button>
+              <button
+                onClick={() => {
+                  setDelegateAddress('');
+                  setDelegateAlias('');
+                  setDelegateError('');
+                  setIsDelegateModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-purple-400" />
+                <span>+ Add Signer</span>
+              </button>
+              <button
+                onClick={() => setIsInviteModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
+                title="Generate and share signup link to assume assigned role"
+              >
+                <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Share Signup Link</span>
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {operators.map((op) => (
@@ -720,23 +784,136 @@ export const WalletSecurityView: React.FC<WalletSecurityViewProps> = ({
                 Delegated operators can log in using their own connected Stellar wallet to view requests and approve them. The primary account remains the debit/credit anchor.
               </div>
 
+              {delegateError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{delegateError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-3 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDelegateModalOpen(false);
+                    setIsInviteModalOpen(true);
+                  }}
+                  className="text-[11px] text-purple-300 hover:text-purple-200 underline cursor-pointer"
+                >
+                  Generate shareable link instead &rarr;
+                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsDelegateModalOpen(false)}
+                    className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingDelegate}
+                    className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
+                  >
+                    {isSubmittingDelegate ? 'Delegating...' : 'Delegate Operator'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: SHARE SIGNUP / ROLE INVITATION LINK --- */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="relative w-full max-w-lg p-6 sm:p-8 bg-[#0d1522]/95 backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_24px_64px_rgba(0,0,0,0.7)] flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Share2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-space font-bold text-white text-base">Share Signer Signup Link</h3>
+                  <span className="text-[11px] text-white/50">Invite team members to assume assigned roles</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsInviteModalOpen(false)}
+                className="text-white/50 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-white/70 font-semibold">Assigned Role</label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-[#141b27] border border-white/[0.12] text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="OPERATOR">OPERATOR (View requests & co-sign within threshold)</option>
+                  <option value="SIGNER_ADMIN">SIGNER_ADMIN (Multisig Weight & Co-Signer Authority)</option>
+                  <option value="POLICY_ADMIN">POLICY_ADMIN (Manage financial spending limits & allowlists)</option>
+                  <option value="AUDITOR">AUDITOR (Read-only compliance & log verification)</option>
+                  <option value="ADMIN">ADMIN (Full management & escalation authority)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-white/70 font-semibold">Signer Alias / Title (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Treasury Co-Signer / Senior Risk Officer"
+                  value={inviteAlias}
+                  onChange={(e) => setInviteAlias(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white placeholder-white/30 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Shareable URL Preview Box */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-white/70 font-semibold">Shareable Invitation Link</label>
+                <div className="p-3 bg-black/40 border border-white/[0.08] rounded-xl flex items-center justify-between gap-2 font-mono text-[11px] text-emerald-300 break-all select-all">
+                  <span className="truncate">{getShareableInviteLink()}</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyInviteLink}
+                    className="p-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors shrink-0 cursor-pointer flex items-center gap-1 text-[11px] font-sans font-semibold"
+                  >
+                    {copiedInviteLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedInviteLink ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-200 text-[11px] leading-relaxed flex items-start gap-2.5">
+                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <strong>How it works:</strong> Share this signup link with your team member. When they open the link in their browser and connect their Stellar wallet, GuardRail will automatically register their wallet address and grant them the assigned <span className="font-mono font-bold text-white bg-emerald-500/30 px-1 py-0.2 rounded">{inviteRole}</span> role!
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
                 <button
                   type="button"
-                  onClick={() => setIsDelegateModalOpen(false)}
+                  onClick={() => setIsInviteModalOpen(false)}
                   className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
                 >
-                  Cancel
+                  Close
                 </button>
                 <button
-                  type="submit"
-                  disabled={isSubmittingDelegate}
-                  className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
+                  type="button"
+                  onClick={handleCopyInviteLink}
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-[#09101A] rounded-xl font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  {isSubmittingDelegate ? 'Delegating...' : 'Delegate Operator'}
+                  {copiedInviteLink ? <Check className="w-4 h-4 text-[#09101A]" /> : <Copy className="w-4 h-4 text-[#09101A]" />}
+                  <span>{copiedInviteLink ? 'Link Copied to Clipboard!' : 'Copy Invitation Link'}</span>
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

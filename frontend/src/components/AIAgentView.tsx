@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ControlledWalletState } from '../types';
 import { api, ApiAgent, ApiPolicy } from '../services/api';
 import { AgentApiConfigModal } from './AgentApiConfigModal';
+import { fetchLiveAccountBalances } from '../services/stellarWallet';
 import {
   Bot,
   Key,
@@ -30,6 +31,10 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   UserPlus,
+  ChevronDown,
+  Settings,
+  Send,
+  WalletCards,
 } from 'lucide-react';
 
 interface AIAgentViewProps {
@@ -50,6 +55,13 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'DISABLED' | 'INACTIVE'>('ALL');
   const [toastMessage, setToastMessage] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<{ agentId: string; menu: 'manage' | 'settings' } | null>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = () => setOpenMenu(null);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
 
   // Creation modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
@@ -99,12 +111,49 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
   const [quickAlwaysApprove, setQuickAlwaysApprove] = useState<boolean>(false);
   const [isSubmittingQuickPolicy, setIsSubmittingQuickPolicy] = useState<boolean>(false);
 
+  // Available assisting operators for multisig selection
+  const [availableOperators, setAvailableOperators] = useState<Array<{ id: string; address: string; alias: string; role: string }>>([]);
+
+  // Assets & PDA Transfers Modal state
+  const [assetModalAgent, setAssetModalAgent] = useState<ApiAgent | null>(null);
+  const [assetModalTab, setAssetModalTab] = useState<'send' | 'topup'>('send');
+  const [assetBalances, setAssetBalances] = useState<Array<{
+    asset_code: string;
+    balance: string;
+    is_native: boolean;
+    issuer?: string | null;
+  }>>([]);
+  const [isLoadingBalances, setIsLoadingBalances] = useState<boolean>(false);
+  const [selectedAssetCode, setSelectedAssetCode] = useState<string>('XLM');
+  const [destinationType, setDestinationType] = useState<'self' | 'other'>('self');
+  const [customDestination, setCustomDestination] = useState<string>('');
+  const [transferAmount, setTransferAmount] = useState<string>('');
+  const [transferError, setTransferError] = useState<string>('');
+  const [transferSuccess, setTransferSuccess] = useState<{
+    message: string;
+    txHash: string;
+    amount: string;
+    asset: string;
+    destination?: string;
+    explorerUrl: string;
+  } | null>(null);
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState<boolean>(false);
+  const [isFriendbotFunding, setIsFriendbotFunding] = useState<boolean>(false);
+
+  // Delegate Operator to Agent styled modal state
+  const [delegateModalAgent, setDelegateModalAgent] = useState<ApiAgent | null>(null);
+  const [delegateAddress, setDelegateAddress] = useState<string>('');
+  const [delegateAlias, setDelegateAlias] = useState<string>('');
+  const [delegateError, setDelegateError] = useState<string>('');
+  const [isSubmittingDelegate, setIsSubmittingDelegate] = useState<boolean>(false);
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [agentsData, policiesData] = await Promise.all([
+      const [agentsData, policiesData, opsData] = await Promise.all([
         api.getAgents().catch(() => []),
         api.getPolicies().catch(() => []),
+        api.getOperators().catch(() => []),
       ]);
 
       const agentList = Array.isArray(agentsData)
@@ -113,6 +162,13 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
       const policyList = Array.isArray(policiesData)
         ? policiesData
         : (policiesData as { results?: ApiPolicy[] })?.results || [];
+      const opsList = Array.isArray(opsData)
+        ? opsData
+        : (opsData as { results?: Array<{ id: string; address: string; alias: string; role: string }> })?.results || [];
+
+      setAgents(agentList);
+      setPolicies(policyList);
+      setAvailableOperators(opsList);
 
       setAgents(agentList);
       setPolicies(policyList);
@@ -337,41 +393,151 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
     }
   };
 
-  const handleRefundToOwner = async (agent: ApiAgent) => {
-    const amountStr = prompt(`Enter amount of XLM to return from PDA to owner wallet (leave blank for all available):`);
-    if (amountStr !== null && amountStr.trim() !== '' && isNaN(Number(amountStr))) {
-      alert('Please enter a valid numeric amount.');
-      return;
-    }
+  const loadAgentBalances = async (agent: ApiAgent) => {
+    setIsLoadingBalances(true);
     try {
-      setToastMessage(`Submitting on-chain refund from PDA to owner wallet on Stellar Testnet...`);
-      const res = await api.refundAgentFundsToOwner(agent.id, amountStr?.trim() || undefined);
-      setToastMessage(`Refunded ${res.amount} XLM to owner! Stellar Tx: ${res.stellar_tx_hash.slice(0, 10)}...`);
+      const horizonData = await fetchLiveAccountBalances(agent.stellar_public_key).catch(() => null);
+      if (horizonData && horizonData.allBalances && horizonData.allBalances.length > 0) {
+        const list = [...horizonData.allBalances];
+        if (!list.some((a) => a.asset_code === 'USDC')) {
+          list.push({ asset_code: 'USDC', balance: '0.00', is_native: false, issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' });
+        }
+        if (!list.some((a) => a.asset_code === 'EURC')) {
+          list.push({ asset_code: 'EURC', balance: '0.00', is_native: false, issuer: 'GDQOE23CFSUMSVQK4Y5JHPP0C4VNMSJ53O234LMNASDFG342' });
+        }
+        setAssetBalances(list);
+      } else {
+        const liveApi = await api.getAgentLiveBalance(agent.id).catch(() => null);
+        const nativeBal = liveApi?.native_balance || agent.pda_balance_xlm || '10,000.00';
+        setAssetBalances([
+          { asset_code: 'XLM', balance: nativeBal, is_native: true, issuer: null },
+          { asset_code: 'USDC', balance: '0.00', is_native: false, issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' },
+          { asset_code: 'EURC', balance: '0.00', is_native: false, issuer: 'GDQOE23CFSUMSVQK4Y5JHPP0C4VNMSJ53O234LMNASDFG342' },
+        ]);
+      }
+    } catch (err) {
+      console.warn('Error fetching PDA balances:', err);
+      setAssetBalances([
+        { asset_code: 'XLM', balance: agent.pda_balance_xlm || '10,000.00', is_native: true, issuer: null },
+        { asset_code: 'USDC', balance: '0.00', is_native: false, issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' },
+      ]);
+    } finally {
+      setIsLoadingBalances(false);
+    }
+  };
+
+  const openAssetModal = (agent: ApiAgent, tab: 'send' | 'topup' = 'send', assetCode: string = 'XLM') => {
+    setAssetModalAgent(agent);
+    setAssetModalTab(tab);
+    setSelectedAssetCode(assetCode);
+    setDestinationType('self');
+    setCustomDestination('');
+    setTransferAmount('');
+    setTransferError('');
+    setTransferSuccess(null);
+    loadAgentBalances(agent);
+  };
+
+  const handleFriendbotTopup = async () => {
+    if (!assetModalAgent) return;
+    try {
+      setIsFriendbotFunding(true);
+      setTransferError('');
+      setToastMessage(`Funding PDA ${assetModalAgent.stellar_public_key.slice(0, 8)}... with 10,000 XLM from Friendbot...`);
+      await api.requestAgentFunds(assetModalAgent.id, 'friendbot');
+      setToastMessage(`Funded PDA with 10,000 XLM on Stellar Testnet!`);
+      await loadAgentBalances(assetModalAgent);
       fetchData();
     } catch (err: unknown) {
-      setToastMessage(`Refund failed: ${err instanceof Error ? err.message : String(err)}`);
+      setTransferError(`Friendbot top-up failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
+      setIsFriendbotFunding(false);
+      setTimeout(() => setToastMessage(''), 4000);
+    }
+  };
+
+  const handleConfirmTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assetModalAgent) return;
+
+    const targetAddress = destinationType === 'self'
+      ? (assetModalAgent.wallet?.address || controlledWallet.address)
+      : customDestination.trim();
+
+    if (!targetAddress || !targetAddress.startsWith('G') || targetAddress.length !== 56) {
+      setTransferError('Please provide a valid 56-character Stellar public key (starting with G).');
+      return;
+    }
+
+    if (transferAmount.trim() !== '' && (isNaN(Number(transferAmount)) || Number(transferAmount) <= 0)) {
+      setTransferError('Please enter a valid numeric amount greater than zero.');
+      return;
+    }
+
+    const curAsset = assetBalances.find((a) => a.asset_code === selectedAssetCode);
+
+    try {
+      setIsSubmittingTransfer(true);
+      setTransferError('');
+      setTransferSuccess(null);
+      setToastMessage(`Submitting transfer from PDA to ${targetAddress.slice(0, 8)}...`);
+
+      const res = await api.refundAgentFundsToOwner(assetModalAgent.id, {
+        destination: targetAddress,
+        asset: selectedAssetCode,
+        amount: transferAmount.trim() || undefined,
+        asset_issuer: curAsset?.issuer || undefined,
+      });
+
+      setTransferSuccess({
+        message: res.message || `Successfully transferred ${res.amount} ${selectedAssetCode}`,
+        txHash: res.stellar_tx_hash,
+        amount: res.amount,
+        asset: selectedAssetCode,
+        destination: targetAddress,
+        explorerUrl: res.explorer_url,
+      });
+
+      setToastMessage(`Transferred ${res.amount} ${selectedAssetCode}! Stellar Tx: ${res.stellar_tx_hash.slice(0, 10)}...`);
+      setTransferAmount('');
+      await loadAgentBalances(assetModalAgent);
+      fetchData();
+    } catch (err: unknown) {
+      setTransferError(`Transfer failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmittingTransfer(false);
       setTimeout(() => setToastMessage(''), 4500);
     }
   };
 
-  const handleDelegateModal = (agent: ApiAgent) => {
-    const address = prompt(`Enter Stellar wallet address (G...) to delegate to agent "${agent.name}":`);
-    if (!address || !address.trim().startsWith('G') || address.trim().length !== 56) {
-      if (address) alert('Invalid Stellar public key format. Must start with G and be 56 characters.');
+  const openDelegateModal = (agent: ApiAgent) => {
+    setDelegateModalAgent(agent);
+    setDelegateAddress('');
+    setDelegateAlias('');
+    setDelegateError('');
+  };
+
+  const handleConfirmDelegate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!delegateModalAgent) return;
+    const addr = delegateAddress.trim();
+    if (!addr.startsWith('G') || addr.length !== 56) {
+      setDelegateError('Invalid Stellar public key format. Must start with G and be 56 characters.');
       return;
     }
-    const alias = prompt('Enter alias/name for this delegated operator (optional):') || '';
-    api.delegateOperatorToAgent(agent.id, address.trim(), alias)
-      .then((res) => {
-        setToastMessage(`Operator ${address.slice(0, 8)} delegated to ${agent.name}!`);
-        fetchData();
-        setTimeout(() => setToastMessage(''), 3500);
-      })
-      .catch((err) => {
-        setToastMessage(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
-        setTimeout(() => setToastMessage(''), 3500);
-      });
+    try {
+      setIsSubmittingDelegate(true);
+      setDelegateError('');
+      await api.delegateOperatorToAgent(delegateModalAgent.id, addr, delegateAlias.trim());
+      setToastMessage(`Operator ${addr.slice(0, 8)}... delegated to ${delegateModalAgent.name}!`);
+      setDelegateModalAgent(null);
+      fetchData();
+    } catch (err: unknown) {
+      setDelegateError(`Delegation failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmittingDelegate(false);
+      setTimeout(() => setToastMessage(''), 3500);
+    }
   };
 
   const filteredAgents = agents.filter((ag) => {
@@ -592,8 +758,9 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                   </div>
                 </div>
 
-                {/* Card Action Buttons */}
-                <div className="flex items-center gap-2 pt-3 border-t border-white/[0.06] flex-wrap">
+                {/* Categorized Card Action Buttons */}
+                <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/[0.06] relative">
+                  {/* 1. Primary Direct Action */}
                   <button
                     onClick={() => {
                       const foundPolicy = policies.find((p) => p.id === ag.policy);
@@ -604,67 +771,177 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                         policy: foundPolicy,
                       });
                     }}
-                    className="flex-1 min-w-[95px] flex items-center justify-center gap-1.5 py-2 px-2.5 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                    title="Open API Configuration & Transaction Runner"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/35 text-blue-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-98"
+                    title="Open API & Transaction Runner"
                   >
-                    <Terminal className="w-3.5 h-3.5 text-blue-400" />
-                    <span>API Config</span>
+                    <Terminal className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    <span>API</span>
                   </button>
 
-                  <button
-                    onClick={() => handleFundPda(ag)}
-                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                    title="Fund PDA with 10,000 XLM on Stellar Testnet via Friendbot"
-                  >
-                    <Coins className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Top-up PDA</span>
-                  </button>
+                  {/* 2. Manage Dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenu((prev) =>
+                          prev?.agentId === ag.id && prev?.menu === 'manage'
+                            ? null
+                            : { agentId: ag.id, menu: 'manage' }
+                        );
+                      }}
+                      className={`w-full flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        openMenu?.agentId === ag.id && openMenu?.menu === 'manage'
+                          ? 'bg-white/[0.12] text-white border-white/25 shadow-sm'
+                          : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.08] text-white/80 hover:text-white'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Manage</span>
+                      <ChevronDown
+                        className={`w-3 h-3 text-white/50 transition-transform duration-200 ${
+                          openMenu?.agentId === ag.id && openMenu?.menu === 'manage' ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
 
-                  <button
-                    onClick={() => handleRefundToOwner(ag)}
-                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                    title="Refund PDA funds back to your signup wallet"
-                  >
-                    <ArrowDownLeft className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Refund</span>
-                  </button>
+                    {openMenu?.agentId === ag.id && openMenu?.menu === 'manage' && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 bottom-full mb-2 w-60 bg-[#0B111D]/98 backdrop-blur-2xl border border-white/[0.14] rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),inset_0_1px_0_0_rgba(255,255,255,0.08)] p-2 z-40 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150"
+                      >
+                        <span className="text-[10px] uppercase font-bold text-white/40 px-2.5 py-1 tracking-wider">
+                          PDA & Delegation
+                        </span>
 
-                  <button
-                    onClick={() => handleDelegateModal(ag)}
-                    className="flex items-center justify-center gap-1 py-2 px-2.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                    title="Delegate another operator to approve transactions"
-                  >
-                    <UserPlus className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Delegate</span>
-                  </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            openAssetModal(ag);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/[0.07] rounded-xl text-xs text-white/90 hover:text-white transition-all text-left cursor-pointer"
+                        >
+                          <Coins className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-white">Assets</span>
+                            <span className="text-[10px] text-white/50">Send to self/other or top up</span>
+                          </div>
+                        </button>
 
-                  <button
-                    onClick={() => openEditModal(ag)}
-                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/80 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit</span>
-                  </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            openDelegateModal(ag);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/[0.07] rounded-xl text-xs text-white/90 hover:text-white transition-all text-left cursor-pointer"
+                        >
+                          <UserPlus className="w-4 h-4 text-purple-400 shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-white">Delegate Operator</span>
+                            <span className="text-[10px] text-white/50">Assign assisting co-signer</span>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                  <button
-                    onClick={() => handleRotateKey(ag)}
-                    className="flex items-center justify-center p-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/60 hover:text-white rounded-xl transition-all cursor-pointer"
-                    title="Rotate API Key"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
+                  {/* 3. Settings Dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenu((prev) =>
+                          prev?.agentId === ag.id && prev?.menu === 'settings'
+                            ? null
+                            : { agentId: ag.id, menu: 'settings' }
+                        );
+                      }}
+                      className={`w-full flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        openMenu?.agentId === ag.id && openMenu?.menu === 'settings'
+                          ? 'bg-white/[0.12] text-white border-white/25 shadow-sm'
+                          : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.08] text-white/80 hover:text-white'
+                      }`}
+                    >
+                      <Settings className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      <span>Settings</span>
+                      <ChevronDown
+                        className={`w-3 h-3 text-white/50 transition-transform duration-200 ${
+                          openMenu?.agentId === ag.id && openMenu?.menu === 'settings' ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
 
-                  <button
-                    onClick={() => handleToggleKillswitch(ag)}
-                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      isKillswitch
-                        ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
-                        : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
-                    }`}
-                  >
-                    {isKillswitch ? <Play className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-                    <span>{isKillswitch ? 'Reactivate' : 'Killswitch'}</span>
-                  </button>
+                    {openMenu?.agentId === ag.id && openMenu?.menu === 'settings' && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 bottom-full mb-2 w-56 bg-[#0B111D]/98 backdrop-blur-2xl border border-white/[0.14] rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),inset_0_1px_0_0_rgba(255,255,255,0.08)] p-2 z-40 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150"
+                      >
+                        <span className="text-[10px] uppercase font-bold text-white/40 px-2.5 py-1 tracking-wider">
+                          Configuration & Security
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            openEditModal(ag);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/[0.07] rounded-xl text-xs text-white/90 hover:text-white transition-all text-left cursor-pointer"
+                        >
+                          <Edit3 className="w-4 h-4 text-blue-400 shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-white">Edit Agent</span>
+                            <span className="text-[10px] text-white/50">Modify policy, autonomy, weight</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            handleRotateKey(ag);
+                          }}
+                          className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/[0.07] rounded-xl text-xs text-white/90 hover:text-white transition-all text-left cursor-pointer"
+                        >
+                          <RefreshCw className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-white">Rotate API Key</span>
+                            <span className="text-[10px] text-white/50">Invalidate & generate new key</span>
+                          </div>
+                        </button>
+
+                        <div className="my-1 border-t border-white/[0.06]" />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            handleToggleKillswitch(ag);
+                          }}
+                          className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs transition-all text-left cursor-pointer ${
+                            isKillswitch
+                              ? 'hover:bg-emerald-500/15 text-emerald-300'
+                              : 'hover:bg-rose-500/15 text-rose-300'
+                          }`}
+                        >
+                          {isKillswitch ? (
+                            <Play className="w-4 h-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                          )}
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{isKillswitch ? 'Reactivate Agent' : 'Killswitch'}</span>
+                            <span className="text-[10px] opacity-75">
+                              {isKillswitch ? 'Restore signing permits' : 'Emergency freeze agent'}
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -968,6 +1245,83 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                           </span>
                         </div>
                       </div>
+                    </div>
+
+                    {/* Assisting Operators Selection (Added by main owner / user) */}
+                    <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.06]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-white/80">
+                          Select Assisting Operators (Added by Owner)
+                        </span>
+                        <span className="text-[10px] text-white/40">
+                          {availableOperators.length} operator{availableOperators.length === 1 ? '' : 's'} available
+                        </span>
+                      </div>
+
+                      {availableOperators.length === 0 ? (
+                        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px] text-white/40 text-center">
+                          No delegated operators found. You can delegate operators under Wallet Security or enter an address below.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                          {availableOperators.map((op) => {
+                            const isSelected = additionalSigners.includes(op.address);
+                            return (
+                              <div
+                                key={op.id || op.address}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setAdditionalSigners(additionalSigners.filter((a) => a !== op.address));
+                                  } else {
+                                    setAdditionalSigners([...additionalSigners, op.address]);
+                                  }
+                                }}
+                                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                                  isSelected
+                                    ? 'bg-blue-600/15 border-blue-500/40 text-white'
+                                    : 'bg-white/[0.02] border-white/[0.06] text-white/60 hover:bg-white/[0.04]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                      isSelected
+                                        ? 'bg-blue-600 border-blue-500 text-white'
+                                        : 'border-white/30 bg-transparent'
+                                    }`}
+                                  >
+                                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                                  </div>
+                                  <div className="min-w-0 flex flex-col">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-semibold text-xs text-white truncate">
+                                        {op.alias || 'Assisting Operator'}
+                                      </span>
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-white/[0.08] text-white/70">
+                                        {op.role}
+                                      </span>
+                                    </div>
+                                    <span className="font-mono text-[10px] text-white/40 truncate">
+                                      {op.address}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className={`text-[10px] font-semibold shrink-0 ${isSelected ? 'text-blue-300' : 'text-white/40'}`}>
+                                  {isSelected ? 'Selected' : 'Add'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Soroban Smart Contract Multisig sync indicator */}
+                    <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-200 text-[10px] flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>
+                        Selected signers and threshold <strong>({newSignerWeight})</strong> will be registered directly into the Soroban Smart Contract upon agent creation.
+                      </span>
                     </div>
 
                     {/* Additional Signing Wallets List */}
@@ -1326,6 +1680,505 @@ export const AIAgentView: React.FC<AIAgentViewProps> = ({
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
                 >
                   {isSubmittingQuickPolicy ? 'Creating...' : 'Save & Assign'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: AGENT PDA ASSETS & TRANSFERS (TOP-UP / SEND TO SELF OR OTHER) --- */}
+      {assetModalAgent && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="relative w-full max-w-2xl bg-[#0B111D]/98 backdrop-blur-2xl border border-white/[0.14] rounded-3xl shadow-[0_24px_64px_rgba(0,0,0,0.8),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col gap-5 p-5 sm:p-7 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-space font-bold text-white text-lg">Agent PDA Assets</h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                      On-Chain
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-white/50 mt-0.5 font-mono">
+                    <span>{assetModalAgent.name}</span>
+                    <span>•</span>
+                    <span className="text-[11px] text-white/40">
+                      {assetModalAgent.stellar_public_key.slice(0, 6)}...{assetModalAgent.stellar_public_key.slice(-6)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(assetModalAgent.stellar_public_key);
+                        setToastMessage('Copied PDA address!');
+                        setTimeout(() => setToastMessage(''), 2000);
+                      }}
+                      className="text-white/40 hover:text-white transition-colors cursor-pointer"
+                      title="Copy PDA Public Key"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/account/${assetModalAgent.stellar_public_key}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 hover:text-emerald-300 transition-colors"
+                      title="View on StellarExpert"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssetModalAgent(null)}
+                className="w-8 h-8 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center text-white/50 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Live Assets Section */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">
+                  Holdings Breakdown
+                </span>
+                <button
+                  type="button"
+                  disabled={isLoadingBalances}
+                  onClick={() => loadAgentBalances(assetModalAgent)}
+                  className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+                  <span>Refresh Balances</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {assetBalances.map((item) => {
+                  const isSelected = selectedAssetCode === item.asset_code;
+                  return (
+                    <div
+                      key={item.asset_code}
+                      onClick={() => setSelectedAssetCode(item.asset_code)}
+                      className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                        isSelected
+                          ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                          : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-space font-bold text-sm text-white">{item.asset_code}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${
+                          item.is_native
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        }`}>
+                          {item.is_native ? 'Native' : 'Token'}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="font-space font-bold text-base text-white tabular-nums truncate">
+                          {item.balance}
+                        </div>
+                        {item.is_native && (
+                          <div className="text-[10px] text-white/40 mt-0.5">
+                            Avail: {Math.max(0, parseFloat(item.balance.replace(/,/g, '')) - 2.0).toFixed(2)} XLM (2 XLM res.)
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.06]">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAssetCode(item.asset_code);
+                            setAssetModalTab('send');
+                          }}
+                          className="flex-1 py-1 px-2 rounded-lg bg-white/[0.05] hover:bg-emerald-500/20 text-[10px] font-semibold text-white/80 hover:text-emerald-300 border border-white/[0.06] transition-all text-center cursor-pointer"
+                        >
+                          Send
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAssetCode(item.asset_code);
+                            setAssetModalTab('topup');
+                          }}
+                          className="flex-1 py-1 px-2 rounded-lg bg-white/[0.05] hover:bg-blue-500/20 text-[10px] font-semibold text-white/80 hover:text-blue-300 border border-white/[0.06] transition-all text-center cursor-pointer"
+                        >
+                          Top up
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Action Tabs: Send / Refund vs Top up */}
+            <div className="flex items-center gap-2 p-1 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setAssetModalTab('send')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  assetModalTab === 'send'
+                    ? 'bg-emerald-500 text-[#09101A] font-bold shadow-md'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
+                }`}
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>Send / Refund Asset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetModalTab('topup')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  assetModalTab === 'topup'
+                    ? 'bg-blue-500 text-white font-bold shadow-md'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
+                }`}
+              >
+                <Coins className="w-3.5 h-3.5" />
+                <span>Top up PDA</span>
+              </button>
+            </div>
+
+            {/* Tab 1 Content: Send / Refund */}
+            {assetModalTab === 'send' && (
+              <form onSubmit={handleConfirmTransfer} className="flex flex-col gap-4 text-xs">
+                {/* Destination Choice: Self vs Other */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-white/70 font-semibold">Recipient Destination</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDestinationType('self')}
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                        destinationType === 'self'
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm'
+                          : 'bg-white/[0.03] border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <span>Send to Self (Master Wallet)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDestinationType('other')}
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                        destinationType === 'other'
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm'
+                          : 'bg-white/[0.03] border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      <span>Send to Other Wallet</span>
+                    </button>
+                  </div>
+                </div>
+
+                {destinationType === 'self' ? (
+                  <div className="p-3 bg-white/[0.03] border border-white/[0.08] rounded-xl flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-white/50">Master Wallet Address:</span>
+                      <span className="text-emerald-400 font-semibold font-mono">
+                        {(assetModalAgent.wallet?.address || controlledWallet.address || '').slice(0, 8)}...{(assetModalAgent.wallet?.address || controlledWallet.address || '').slice(-6)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-white/40">
+                      Funds will be securely refunded from this AI Agent's PDA back into your signup master wallet.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-white/70 font-semibold">Other Stellar Address (G...)</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
+                      value={customDestination}
+                      onChange={(e) => {
+                        setCustomDestination(e.target.value);
+                        setTransferError('');
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                )}
+
+                {/* Asset & Amount Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-white/70 font-semibold">Select Asset</label>
+                    <select
+                      value={selectedAssetCode}
+                      onChange={(e) => setSelectedAssetCode(e.target.value)}
+                      className="px-3.5 py-2.5 rounded-xl bg-[#09101A] border border-white/[0.1] text-xs font-semibold text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                    >
+                      {assetBalances.map((a) => (
+                        <option key={a.asset_code} value={a.asset_code} className="bg-[#09101A] text-white">
+                          {a.asset_code} (Bal: {a.balance})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-white/70 font-semibold">Amount to Send</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cur = assetBalances.find((a) => a.asset_code === selectedAssetCode);
+                          if (cur) {
+                            const raw = parseFloat(cur.balance.replace(/,/g, ''));
+                            if (cur.is_native) {
+                              const maxTransfer = Math.max(0, raw - 2.0);
+                              setTransferAmount(maxTransfer > 0 ? maxTransfer.toFixed(2) : '0');
+                            } else {
+                              setTransferAmount(raw.toFixed(2));
+                            }
+                          }
+                        }}
+                        className="text-[10px] text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                      >
+                        Max {selectedAssetCode === 'XLM' ? '(reserve held)' : ''}
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. 50.00"
+                      value={transferAmount}
+                      onChange={(e) => setTransferAmount(e.target.value)}
+                      className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {transferError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                    <span>{transferError}</span>
+                  </div>
+                )}
+
+                {/* Success Banner */}
+                {transferSuccess && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs rounded-xl flex flex-col gap-1">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>{transferSuccess.message}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-white/60 font-mono mt-0.5">
+                      <span>Tx: {transferSuccess.txHash.slice(0, 14)}...</span>
+                      <a
+                        href={transferSuccess.explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-400 hover:text-emerald-300 underline flex items-center gap-0.5"
+                      >
+                        <span>StellarExpert</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Submit Action */}
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
+                  <button
+                    type="button"
+                    onClick={() => setAssetModalAgent(null)}
+                    className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingTransfer}
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 text-[#09101A] rounded-xl font-bold shadow-md transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    {isSubmittingTransfer ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Sending On-Chain...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                        <span>Confirm & Send {selectedAssetCode}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Tab 2 Content: Top Up */}
+            {assetModalTab === 'topup' && (
+              <div className="flex flex-col gap-4 text-xs">
+                {/* Method 1: Instant Friendbot Top-up */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/25 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                        <Coins className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-space font-bold text-white text-sm">Instant Friendbot Top-up</h4>
+                        <span className="text-[11px] text-white/50">Stellar Testnet Faucet</span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-blue-400">+10,000 XLM</span>
+                  </div>
+                  <p className="text-white/60 text-xs">
+                    Instantly credit this AI Agent's PDA on the Stellar Testnet network for transaction fees and operations with a single click.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={isFriendbotFunding}
+                    onClick={handleFriendbotTopup}
+                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isFriendbotFunding ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Requesting from Friendbot...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>Top up +10,000 XLM Now</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Method 2: Deposit from Connected / Master Wallet */}
+                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex flex-col gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                      <ArrowDownLeft className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-space font-bold text-white text-sm">Deposit from External / Master Wallet</h4>
+                      <span className="text-[11px] text-white/50">Deposit XLM, USDC, or EURC</span>
+                    </div>
+                  </div>
+                  <p className="text-white/60 text-xs">
+                    Send funds to this AI Agent's PDA address directly from your connected wallet or any Stellar wallet:
+                  </p>
+                  <div className="p-3 bg-black/40 border border-white/[0.08] rounded-xl flex items-center justify-between font-mono text-[11px] text-white/80 break-all">
+                    <span className="select-all">{assetModalAgent.stellar_public_key}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(assetModalAgent.stellar_public_key);
+                        setToastMessage('Copied PDA Public Key!');
+                        setTimeout(() => setToastMessage(''), 2000);
+                      }}
+                      className="ml-2 p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/70 hover:text-white transition-all cursor-pointer shrink-0"
+                      title="Copy Address"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end pt-2 border-t border-white/[0.08]">
+                  <button
+                    type="button"
+                    onClick={() => setAssetModalAgent(null)}
+                    className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: DELEGATE OPERATOR TO AGENT --- */}
+      {delegateModalAgent && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="relative w-full max-w-md p-6 sm:p-7 bg-[#0d1522]/95 backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_24px_64px_rgba(0,0,0,0.7)] flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-space font-bold text-white text-base">Delegate Operator</h3>
+                  <span className="text-[11px] text-white/50">For Agent: {delegateModalAgent.name}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setDelegateModalAgent(null)}
+                className="text-white/50 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDelegate} className="flex flex-col gap-4 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-white/70 font-semibold">Stellar Wallet Address (G...)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="GB54HQQPWRACHYXERO2JN7RBTMNREQMQ7B3XLRCVWPKZS3NXO7PN2BTE"
+                  value={delegateAddress}
+                  onChange={(e) => {
+                    setDelegateAddress(e.target.value);
+                    setDelegateError('');
+                  }}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-white/70 font-semibold">Operator Alias / Role Label (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Risk Auditor / Senior Signer"
+                  value={delegateAlias}
+                  onChange={(e) => setDelegateAlias(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs text-white placeholder-white/30 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              {delegateError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{delegateError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => setDelegateModalAgent(null)}
+                  className="px-4 py-2 text-white/60 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDelegate}
+                  className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingDelegate ? 'Delegating...' : 'Delegate Operator'}
                 </button>
               </div>
             </form>
