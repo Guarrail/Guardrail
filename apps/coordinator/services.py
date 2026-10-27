@@ -130,7 +130,10 @@ def evaluate_and_create_request(
         # Check recipient blacklist & allowlist / whitelist:
         # Self-custody swaps returning tokens to the agent's own wallet bypass external recipient restrictions.
         recipient_clean = recipient.strip()
-        is_self_swap = swap_details and recipient_clean == target_wallet.address.strip()
+        is_self_swap = swap_details and (
+            (target_wallet and recipient_clean == target_wallet.address.strip())
+            or (agent.stellar_public_key and recipient_clean == agent.stellar_public_key.strip())
+        )
         if not is_valid_stellar_address(recipient_clean):
             eval_result.fail("Invalid recipient Stellar address format.", category="recipient")
         elif policy.blocked_recipients.filter(address__iexact=recipient_clean, is_active=True).exists():

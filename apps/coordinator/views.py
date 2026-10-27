@@ -151,7 +151,7 @@ class AgentSwapView(APIView):
         send_asset = data.get("send_asset", "XLM")
         dest_asset = data.get("dest_asset", "USDC")
         amount = data["amount"]
-        destination = data.get("destination") or agent.wallet.address
+        destination = data.get("destination") or agent.stellar_public_key or (agent.wallet.address if agent.wallet else "")
 
         swap_details = {
             "send_asset": send_asset,

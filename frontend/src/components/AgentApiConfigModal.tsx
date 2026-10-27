@@ -199,7 +199,7 @@ export const AgentApiConfigModal: React.FC<AgentApiConfigModalProps> = ({
           send_asset: sendAsset,
           dest_asset: destAsset,
           amount: swapAmount,
-          destination: swapDestination.trim() || undefined,
+          destination: swapDestination.trim() || agent.stellar_public_key,
           auto_execute: true,
         },
         apiKey || undefined

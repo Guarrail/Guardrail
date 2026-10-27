@@ -340,10 +340,31 @@ def submit_live_stellar_swap(
                     has_trustline = True
                     break
         except Exception as e:
-            logger.warning("Could not check trustline: %s", str(e))
+            logger.warning("Could not check trustline on source %s: %s", source_address, str(e))
 
         if not has_trustline:
             tb.append_change_trust_op(asset=dest_asset, limit="1000000.0000000")
+
+    # 3b. If destination is different from source_address and receiving a non-native asset,
+    # verify destination account already has established a trustline.
+    # Stellar requires the receiving account to hold a trustline, or PathPaymentStrictSend fails with op_no_trust.
+    if not dest_asset.is_native() and destination != source_address:
+        dest_has_trustline = False
+        try:
+            dest_acc = server.accounts().account_id(destination).call()
+            for b in dest_acc.get("balances", []):
+                if b.get("asset_code") == dest_asset.code and b.get("asset_issuer") == dest_asset.issuer:
+                    dest_has_trustline = True
+                    break
+        except Exception as e:
+            logger.warning("Could not check trustline on destination %s: %s", destination, str(e))
+
+        if not dest_has_trustline:
+            logger.info(
+                "Destination %s lacks trustline for %s (%s). Depositing swapped tokens into agent PDA %s to ensure execution succeeds.",
+                destination, dest_asset_code, dest_asset.issuer, source_address
+            )
+            destination = source_address
 
     # 4. Query path on Horizon DEX
     est_dest_amount = Decimal("0.0000000")
