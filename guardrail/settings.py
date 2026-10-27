@@ -217,9 +217,9 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 50,
 }
 
-# DRF Spectacular OpenAPI / Swagger 3.0 Documentation Settings
+# DRF Spectacular OpenAPI / Swagger 3.0 & ReDoc Documentation Settings
 SPECTACULAR_SETTINGS = {
-    "TITLE": "GuardRail Policy Coordinator API",
+    "TITLE": "GuardRail API",
     "DESCRIPTION": (
         "GuardRail is a policy-controlled capital management infrastructure built on Stellar that allows "
         "AI agents to initiate financial transactions without giving them unrestricted control over digital assets.\n\n"
@@ -232,6 +232,8 @@ SPECTACULAR_SETTINGS = {
         "- Soroban Smart Contract Verification & Simulation"
     ),
     "VERSION": "1.0.0",
+    # Pin to a stable version without the import.meta bundle bug:
+    "REDOC_DIST": "https://cdn.jsdelivr.net/npm/redoc@2.1.5",
     "SERVE_INCLUDE_SCHEMA": False,
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
